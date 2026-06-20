@@ -51,17 +51,22 @@ Dart implementation of the protocol, and the terminal is
 ## Screenshots
 
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05-machines.png" width="200">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-terminal-nvim.png" width="200">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/06-terminal-btop.png" width="200">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/07-terminal-claude-code.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-theme.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03-appearance.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/04-sftp.png" width="200">
 </p>
 <p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05-machines.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/06-terminal-btop.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/07-terminal-claude-code.png" width="200">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/08-terminal-codex.png" width="200">
+</p>
+<p align="center">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/09-terminal-unimatrix.png" width="200">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/04-sftp.png" width="200">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03-appearance.png" width="200">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-theme.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/10-new-machine.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/11-hardware-key.png" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/12-mosh-settings.png" width="200">
 </p>
 
 ## Google Play Store doesn't care about independent developers
