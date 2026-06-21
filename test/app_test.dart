@@ -206,6 +206,17 @@ void main() {
     expect(themeController.terminalFontSize, greaterThan(initialFontSize));
   });
 
+  test('terminal font size supports the wider zoom range', () async {
+    final themeController = ThemeController(_InMemoryThemePreferences());
+    await themeController.load();
+
+    await themeController.setTerminalFontSize(4);
+    expect(themeController.terminalFontSize, 6);
+
+    await themeController.setTerminalFontSize(50);
+    expect(themeController.terminalFontSize, 30);
+  });
+
   group('TerminalSessionController', () {
     test('ignores a connection that completes after disconnect', () async {
       final repository = _PendingTerminalRepository();

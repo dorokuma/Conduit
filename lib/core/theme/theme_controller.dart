@@ -64,7 +64,7 @@ class ThemeController extends ChangeNotifier {
     if (_terminalFontSize == normalized) {
       return;
     }
-    _terminalFontSize = normalized.clamp(10, 22).toDouble();
+    _terminalFontSize = normalized.clamp(6, 30).toDouble();
     notifyListeners();
     await _save();
   }

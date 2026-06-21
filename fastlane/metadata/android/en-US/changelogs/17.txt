@@ -1,1 +1,3 @@
 Pinch zoom is now supported in terminal sessions. Use two fingers to zoom in or out, and Conduit will keep the terminal font size in sync with the Appearance setting.
+
+The terminal font-size range is wider too: zoom out further for dense AI-agent output, or zoom in more when you need larger text.

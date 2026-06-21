@@ -59,7 +59,7 @@ class ThemePreferencesRepository {
       ),
       terminalFontSize: terminalFontSize == null
           ? 13.5
-          : terminalFontSize.clamp(10, 22).toDouble(),
+          : terminalFontSize.clamp(6, 30).toDouble(),
       terminalKeyboardActions: terminalKeyboardActions,
     );
   }
