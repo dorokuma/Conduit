@@ -1,4 +1,8 @@
+import 'dart:async';
+
+import 'package:conduit/features/hosts/data/dartssh2_ssh_key_service.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
+import 'package:conduit/features/hosts/domain/ssh_key.dart';
 import 'package:conduit/features/hosts/presentation/host_form_page.dart';
 import 'package:conduit/features/hosts/presentation/hosts_controller.dart';
 import 'package:flutter/material.dart';
@@ -197,6 +201,165 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('shows a key summary for a recognized private key', (
+      tester,
+    ) async {
+      final generated = const Dartssh2SshKeyService().generateEd25519(
+        comment: 'me@conduit',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: HostFormPage()));
+      await tester.tap(find.text('Private key').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Private key'),
+        generated.privateKeyPem,
+      );
+      await tester.pump();
+
+      expect(find.text('Ed25519'), findsOneWidget);
+      expect(find.text('me@conduit'), findsOneWidget);
+      expect(find.text('View public key'), findsOneWidget);
+      expect(find.text(generated.details.fingerprintSha256), findsOneWidget);
+    });
+
+    testWidgets('encrypted key without a passphrase asks for one on save', (
+      tester,
+    ) async {
+      final generated = const Dartssh2SshKeyService().generateEd25519(
+        passphrase: 'locked',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: HostFormPage()));
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Display name'),
+        'Host',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Host or IP'),
+        'example.com',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Username'),
+        'root',
+      );
+      await tester.tap(find.text('Private key').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Private key'),
+        generated.privateKeyPem,
+      );
+      final listPosition =
+          ((find.byType(Scrollable).evaluate().first as StatefulElement).state
+                  as ScrollableState)
+              .position;
+      final addButton = find.text('Add machine');
+      for (var i = 0; i < 40 && addButton.evaluate().isEmpty; i++) {
+        listPosition.jumpTo(
+          (listPosition.pixels + 200).clamp(0.0, listPosition.maxScrollExtent),
+        );
+        await tester.pump();
+      }
+      await tester.ensureVisible(addButton);
+      await tester.pumpAndSettle();
+      await tester.tap(addButton);
+      await tester.pumpAndSettle();
+      listPosition.jumpTo(0);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Enter the key passphrase to unlock it.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('verifies an encrypted passphrase and unlocks the card', (
+      tester,
+    ) async {
+      final generated = const Dartssh2SshKeyService().generateEd25519(
+        comment: 'locked@conduit',
+        passphrase: 'open me',
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(home: HostFormPage(keyService: _SyncKeyService())),
+      );
+      await tester.tap(find.text('Private key').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Private key'),
+        generated.privateKeyPem,
+      );
+      await tester.pump();
+      expect(
+        find.text(
+          'This key is encrypted. Enter its passphrase below to unlock it.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Key passphrase'),
+        'open me',
+      );
+      await tester.pump();
+      expect(find.text('Checking passphrase…'), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('Ed25519'), findsOneWidget);
+      expect(find.text('locked@conduit'), findsOneWidget);
+    });
+
+    testWidgets('a stale verify result cannot overwrite a cleared passphrase', (
+      tester,
+    ) async {
+      final service = _ControllableKeyService();
+      final generated = const Dartssh2SshKeyService().generateEd25519(
+        passphrase: 'secret',
+      );
+      const encryptedNotice =
+          'This key is encrypted. Enter its passphrase below to unlock it.';
+
+      await tester.pumpWidget(
+        MaterialApp(home: HostFormPage(keyService: service)),
+      );
+      await tester.tap(find.text('Private key').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Private key'),
+        generated.privateKeyPem,
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Key passphrase'),
+        'secret',
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(service.pending, 1);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Key passphrase'),
+        '',
+      );
+      await tester.pump();
+      expect(find.text(encryptedNotice), findsOneWidget);
+
+      service.completeLast(const SshKeyInspection.wrongPassphrase());
+      await tester.pump();
+
+      expect(find.text(encryptedNotice), findsOneWidget);
+      expect(
+        find.text('That passphrase did not match this key.'),
+        findsNothing,
+      );
+    });
   });
 
   group('HostsController', () {
@@ -225,4 +388,51 @@ void main() {
       expect(saved.lastConnectedAt, isNotNull);
     });
   });
+}
+
+class _SyncKeyService implements SshKeyService {
+  const _SyncKeyService();
+
+  SshKeyService get _delegate => const Dartssh2SshKeyService();
+
+  @override
+  SshKeyInspection inspect(String pem, {String passphrase = ''}) =>
+      _delegate.inspect(pem, passphrase: passphrase);
+
+  @override
+  Future<SshKeyInspection> verify(String pem, {String passphrase = ''}) =>
+      Future.value(_delegate.inspect(pem, passphrase: passphrase));
+
+  @override
+  GeneratedSshKey generateEd25519({
+    String comment = '',
+    String passphrase = '',
+  }) => _delegate.generateEd25519(comment: comment, passphrase: passphrase);
+}
+
+class _ControllableKeyService implements SshKeyService {
+  final _delegate = const Dartssh2SshKeyService();
+  final _completers = <Completer<SshKeyInspection>>[];
+
+  int get pending => _completers.where((c) => !c.isCompleted).length;
+
+  void completeLast(SshKeyInspection result) =>
+      _completers.last.complete(result);
+
+  @override
+  SshKeyInspection inspect(String pem, {String passphrase = ''}) =>
+      _delegate.inspect(pem, passphrase: passphrase);
+
+  @override
+  Future<SshKeyInspection> verify(String pem, {String passphrase = ''}) {
+    final completer = Completer<SshKeyInspection>();
+    _completers.add(completer);
+    return completer.future;
+  }
+
+  @override
+  GeneratedSshKey generateEd25519({
+    String comment = '',
+    String passphrase = '',
+  }) => _delegate.generateEd25519(comment: comment, passphrase: passphrase);
 }

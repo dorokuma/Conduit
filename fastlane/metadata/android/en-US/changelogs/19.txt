@@ -1,0 +1,5 @@
+Bring SSH keys in the easy way: import a private key straight from a file instead of pasting it, or generate a new Ed25519 key right on your device.
+
+Generated keys can be protected with a passphrase, and Conduit shows the public key and its fingerprint so you can copy or save it and add it to a server in seconds.
+
+Conduit now recognizes encrypted keys automatically and asks for the passphrase, with clear guidance for normal keys, passphrase-protected keys, and hardware-key stubs.

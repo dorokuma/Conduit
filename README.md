@@ -40,6 +40,8 @@ Dart implementation of the protocol, and the terminal is
   key selection, action shortcuts, and scrollback mode.
 - SFTP browser for navigating, downloading, uploading, renaming, and deleting files.
 - OpenSSH private key, password, and hardware security key authentication.
+- Import private keys from a file or generate an `ed25519` key on device, with
+  optional passphrase encryption and one-tap public-key copy and export.
 - OpenSSH FIDO security-key auth for `ed25519-sk` and `ecdsa-sk` credentials,
   tested with YubiKey and designed for CTAP-compatible keys.
 - Android hardware-key auth over USB or NFC; iOS hardware-key auth over NFC.

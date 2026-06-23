@@ -1,7 +1,7 @@
 name: conduit
 description: "A minimal SSH client for Android and iOS."
 publish_to: 'none'
-version: 1.1.0+18
+version: 1.2.0+19
 
 environment:
   sdk: ^3.12.0
@@ -18,7 +18,7 @@ dependencies:
   dartssh2:
     git:
       url: https://github.com/gwitko/dartssh2_conduit.git
-      ref: a96ee3a0d5fc55b6413ac1daf8da2a1309345a74
+      ref: abfb6677b65d523c29a9dc7f69588029fad03a57
   conduit_vt:
     git:
       url: https://github.com/gwitko/conduit_vt.git
@@ -26,6 +26,7 @@ dependencies:
   dart_mosh: ^0.0.4
   flutter_secure_storage: ^10.3.1
   local_auth: ^3.0.1
+  pinenacl: ^0.6.0
   uuid: ^4.5.3
   file_picker: ^11.0.2
   fido2: ^1.1.0

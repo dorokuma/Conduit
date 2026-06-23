@@ -1,19 +1,31 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:conduit/core/presentation/conduit_brand.dart';
 import 'package:conduit/core/presentation/system_navigation_insets.dart';
 import 'package:conduit/core/theme/theme_controller.dart';
+import 'package:conduit/features/hosts/data/dartssh2_ssh_key_service.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
+import 'package:conduit/features/hosts/domain/ssh_key.dart';
+import 'package:conduit/features/hosts/presentation/public_key_sheet.dart';
 import 'package:conduit/features/hosts/presentation/widgets/host_form_chrome.dart';
 import 'package:conduit/features/hosts/presentation/widgets/host_form_sections.dart';
-import 'package:dartssh2/dartssh2.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 class HostFormPage extends StatefulWidget {
-  const HostFormPage({this.host, this.themeController, super.key});
+  const HostFormPage({
+    this.host,
+    this.themeController,
+    this.keyService = const Dartssh2SshKeyService(),
+    super.key,
+  });
 
   final SavedHost? host;
   final ThemeController? themeController;
+  final SshKeyService keyService;
 
   @override
   State<HostFormPage> createState() => _HostFormPageState();
@@ -42,12 +54,23 @@ class _HostFormPageState extends State<HostFormPage> {
   bool _startTmuxOnConnect = false;
   TmuxPrefixKey _tmuxPrefixKey = defaultTmuxPrefixKey;
   List<String> _tags = const [];
+  SshKeyInspection? _keyInspection;
+  Timer? _verifyTimer;
+  int _verifyToken = 0;
+
+  static const _verifyDebounce = Duration(milliseconds: 350);
 
   bool get _isEditing => widget.host != null;
+
+  bool get _usesKeyAuth =>
+      _authMethod == SshAuthMethod.privateKey ||
+      _authMethod == SshAuthMethod.hardwareKey;
 
   @override
   void initState() {
     super.initState();
+    _privateKeyController.addListener(_recomputeKeyInspection);
+    _passphraseController.addListener(_recomputeKeyInspection);
     final host = widget.host;
     if (host != null) {
       _nameController.text = host.name;
@@ -68,10 +91,53 @@ class _HostFormPageState extends State<HostFormPage> {
       _tmuxPrefixKey = host.tmuxPrefixKey;
       _tmuxStartDirectoryController.text = host.tmuxStartDirectory;
     }
+    _keyInspection = _cheapPreview();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _recomputeKeyInspection();
+    });
+  }
+
+  SshKeyInspection? _cheapPreview() {
+    if (!_usesKeyAuth || _privateKeyController.text.trim().isEmpty) {
+      return null;
+    }
+    return widget.keyService.inspect(_privateKeyController.text);
+  }
+
+  void _recomputeKeyInspection() {
+    _verifyTimer?.cancel();
+    final token = ++_verifyToken;
+    final preview = _cheapPreview();
+    if (preview?.status == SshKeyStatus.needsPassphrase &&
+        _passphraseController.text.isNotEmpty) {
+      _setInspection(const SshKeyInspection.verifying());
+      final key = _privateKeyController.text;
+      final passphrase = _passphraseController.text;
+      _verifyTimer = Timer(_verifyDebounce, () async {
+        final result = await widget.keyService.verify(
+          key,
+          passphrase: passphrase,
+        );
+        if (!mounted || token != _verifyToken) return;
+        _setInspection(result);
+      });
+    } else {
+      _setInspection(preview);
+    }
+  }
+
+  void _setInspection(SshKeyInspection? next) {
+    if (next?.status == _keyInspection?.status &&
+        next?.details?.fingerprintSha256 ==
+            _keyInspection?.details?.fingerprintSha256) {
+      return;
+    }
+    setState(() => _keyInspection = next);
   }
 
   @override
   void dispose() {
+    _verifyTimer?.cancel();
     _nameController.dispose();
     _hostController.dispose();
     _portController.dispose();
@@ -143,15 +209,21 @@ class _HostFormPageState extends State<HostFormPage> {
               showPassword: _showPassword,
               showPassphrase: _showPassphrase,
               forwardAgent: _forwardAgent,
+              keyInspection: _keyInspection,
               requiredValidator: _required,
               keyMaterialValidator: _validateKeyMaterial,
-              onAuthMethodChanged: (method) =>
-                  setState(() => _authMethod = method),
+              onAuthMethodChanged: (method) {
+                setState(() => _authMethod = method);
+                _recomputeKeyInspection();
+              },
               onTogglePasswordVisibility: () =>
                   setState(() => _showPassword = !_showPassword),
               onTogglePassphraseVisibility: () =>
                   setState(() => _showPassphrase = !_showPassphrase),
               onPasteKey: _pasteKey,
+              onImportKeyFile: _importKeyFile,
+              onGenerateKey: _generateKey,
+              onViewPublicKey: _viewPublicKey,
               onForwardAgentChanged: (value) =>
                   setState(() => _forwardAgent = value),
             ),
@@ -217,31 +289,171 @@ class _HostFormPageState extends State<HostFormPage> {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text;
     if (text == null || text.isEmpty) return;
-    if (_privateKeyController.text.isNotEmpty) {
-      if (!mounted) return;
-      final replace = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Replace key?'),
-          content: const Text(
-            'The private key field already has content. Replace it with the '
-            'clipboard contents?',
+    if (!mounted) return;
+    if (_privateKeyController.text.isNotEmpty && !await _confirmReplaceKey()) {
+      return;
+    }
+    _privateKeyController.text = text;
+  }
+
+  Future<void> _importKeyFile() async {
+    final FilePickerResult? result;
+    try {
+      result = await FilePicker.pickFiles(withData: true);
+    } catch (_) {
+      if (mounted) _showSnack('Could not open the file picker.');
+      return;
+    }
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) {
+      if (mounted) _showSnack('That file could not be read.');
+      return;
+    }
+    final String text;
+    try {
+      text = utf8.decode(bytes);
+    } catch (_) {
+      if (mounted) _showSnack("That file isn't a text private key.");
+      return;
+    }
+    if (!mounted) return;
+    if (_privateKeyController.text.isNotEmpty && !await _confirmReplaceKey()) {
+      return;
+    }
+    _privateKeyController.text = text.trim();
+    if (!mounted) return;
+    _showSnack(
+      _cheapPreview()?.status == SshKeyStatus.invalid
+          ? "That file isn't a recognized private key."
+          : 'Imported ${file.name}',
+    );
+  }
+
+  Future<void> _generateKey() async {
+    if (_privateKeyController.text.isNotEmpty && !await _confirmReplaceKey()) {
+      return;
+    }
+    if (!mounted) return;
+    final options = await _promptGenerateOptions();
+    if (options == null) return;
+    final GeneratedSshKey generated;
+    try {
+      generated = widget.keyService.generateEd25519(
+        comment: options.comment.trim(),
+        passphrase: options.passphrase,
+      );
+    } catch (_) {
+      if (mounted) _showSnack('Could not generate a key.');
+      return;
+    }
+    setState(() => _authMethod = SshAuthMethod.privateKey);
+    _passphraseController.text = options.passphrase;
+    _privateKeyController.text = generated.privateKeyPem;
+    if (!mounted) return;
+    await showPublicKeySheet(
+      context: context,
+      details: generated.details,
+      freshlyGenerated: true,
+    );
+  }
+
+  void _viewPublicKey() {
+    final details = _keyInspection?.details;
+    if (details == null) return;
+    showPublicKeySheet(context: context, details: details);
+  }
+
+  Future<bool> _confirmReplaceKey() async {
+    final replace = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Replace key?'),
+        content: const Text(
+          'The private key field already has content. Replace it?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Replace'),
+          ),
+        ],
+      ),
+    );
+    return replace ?? false;
+  }
+
+  Future<({String comment, String passphrase})?> _promptGenerateOptions() {
+    final username = _usernameController.text.trim();
+    final commentController = TextEditingController(
+      text: username.isEmpty ? 'conduit' : '$username@conduit',
+    );
+    final passphraseController = TextEditingController();
+    return showDialog<({String comment, String passphrase})>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Generate Ed25519 key'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'A new key pair is created on this device. The public key is '
+              'shown next so you can add it to the server.',
             ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Replace'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: commentController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Label',
+                helperText: 'Shown as the key comment.',
+              ),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passphraseController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Passphrase (optional)',
+                helperText: 'Encrypts the private key. Leave empty for none.',
+                helperMaxLines: 2,
+              ),
+              textInputAction: TextInputAction.done,
             ),
           ],
         ),
-      );
-      if (replace != true) return;
-    }
-    _privateKeyController.text = text;
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop((
+              comment: commentController.text,
+              passphrase: passphraseController.text,
+            )),
+            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+            label: const Text('Generate'),
+          ),
+        ],
+      ),
+    ).whenComplete(() {
+      commentController.dispose();
+      passphraseController.dispose();
+    });
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _save() {
@@ -296,26 +508,27 @@ class _HostFormPageState extends State<HostFormPage> {
     if (required != null) {
       return required;
     }
-    try {
-      final keyPairs = SSHKeyPair.fromPem(
-        value!,
-        _passphraseController.text.isEmpty ? null : _passphraseController.text,
-      );
-      final hasSecurityKey = keyPairs.any(
-        (keyPair) => keyPair is OpenSSHSecurityKeyPair,
-      );
-      if (_authMethod == SshAuthMethod.privateKey && hasSecurityKey) {
-        return 'This is a hardware-key stub. Choose Hardware key instead.';
-      }
-      if (_authMethod == SshAuthMethod.hardwareKey && !hasSecurityKey) {
-        return 'Use id_ed25519_sk or id_ecdsa_sk, not a normal private key.';
-      }
-    } catch (_) {
-      return _authMethod == SshAuthMethod.hardwareKey
-          ? 'Paste a valid OpenSSH *_sk key stub.'
-          : 'Paste a valid PEM or OpenSSH private key.';
-    }
-    return null;
+    final inspection = widget.keyService.inspect(
+      value!,
+      passphrase: _passphraseController.text,
+    );
+    return switch (inspection.status) {
+      SshKeyStatus.needsPassphrase => 'Enter the key passphrase to unlock it.',
+      SshKeyStatus.verifying => null,
+      SshKeyStatus.wrongPassphrase => 'That passphrase did not match this key.',
+      SshKeyStatus.invalid =>
+        _authMethod == SshAuthMethod.hardwareKey
+            ? 'Use a valid OpenSSH *_sk key stub.'
+            : 'Use a valid PEM or OpenSSH private key.',
+      SshKeyStatus.securityKeyStub =>
+        _authMethod == SshAuthMethod.privateKey
+            ? 'This is a hardware-key stub. Choose Hardware key instead.'
+            : null,
+      SshKeyStatus.valid =>
+        _authMethod == SshAuthMethod.hardwareKey
+            ? 'Use id_ed25519_sk or id_ecdsa_sk, not a normal private key.'
+            : null,
+    };
   }
 
   String? _validatePort(String? value) {

@@ -1,6 +1,9 @@
 import 'package:conduit/features/hosts/domain/saved_host.dart';
+import 'package:conduit/features/hosts/domain/ssh_key.dart';
 import 'package:conduit/features/hosts/presentation/widgets/auth_method_picker.dart';
 import 'package:conduit/features/hosts/presentation/widgets/host_form_chrome.dart';
+import 'package:conduit/features/hosts/presentation/widgets/key_source_actions.dart';
+import 'package:conduit/features/hosts/presentation/widgets/ssh_key_summary.dart';
 import 'package:conduit/features/hosts/presentation/widgets/tag_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -95,12 +98,16 @@ class HostAuthenticationSection extends StatelessWidget {
     required this.showPassword,
     required this.showPassphrase,
     required this.forwardAgent,
+    required this.keyInspection,
     required this.requiredValidator,
     required this.keyMaterialValidator,
     required this.onAuthMethodChanged,
     required this.onTogglePasswordVisibility,
     required this.onTogglePassphraseVisibility,
     required this.onPasteKey,
+    required this.onImportKeyFile,
+    required this.onGenerateKey,
+    required this.onViewPublicKey,
     required this.onForwardAgentChanged,
     super.key,
   });
@@ -112,12 +119,16 @@ class HostAuthenticationSection extends StatelessWidget {
   final bool showPassword;
   final bool showPassphrase;
   final bool forwardAgent;
+  final SshKeyInspection? keyInspection;
   final FormFieldValidator<String> requiredValidator;
   final FormFieldValidator<String> keyMaterialValidator;
   final ValueChanged<SshAuthMethod> onAuthMethodChanged;
   final VoidCallback onTogglePasswordVisibility;
   final VoidCallback onTogglePassphraseVisibility;
   final VoidCallback onPasteKey;
+  final VoidCallback onImportKeyFile;
+  final VoidCallback onGenerateKey;
+  final VoidCallback onViewPublicKey;
   final ValueChanged<bool> onForwardAgentChanged;
 
   @override
@@ -154,7 +165,15 @@ class HostAuthenticationSection extends StatelessWidget {
         if (authMethod == SshAuthMethod.privateKey ||
             authMethod == SshAuthMethod.hardwareKey) ...[
           AuthExplainer(method: authMethod),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+          KeySourceActions(
+            onImportFile: onImportKeyFile,
+            onPaste: onPasteKey,
+            onGenerate: authMethod == SshAuthMethod.hardwareKey
+                ? null
+                : onGenerateKey,
+          ),
+          const SizedBox(height: 14),
           TextFormField(
             controller: privateKeyController,
             decoration: InputDecoration(
@@ -162,17 +181,12 @@ class HostAuthenticationSection extends StatelessWidget {
                   ? 'OpenSSH hardware key stub'
                   : 'Private key',
               helperText: authMethod == SshAuthMethod.hardwareKey
-                  ? 'Paste the id_ed25519_sk or id_ecdsa_sk file.'
-                  : 'Paste a PEM or OpenSSH private key.',
+                  ? 'Import or paste the id_ed25519_sk or id_ecdsa_sk file.'
+                  : 'Import, paste, or generate a key.',
               alignLabelWithHint: true,
               prefixIcon: const Padding(
                 padding: EdgeInsets.only(top: 12),
                 child: Icon(Icons.vpn_key_outlined),
-              ),
-              suffixIcon: IconButton(
-                tooltip: 'Paste key',
-                icon: const Icon(Icons.content_paste_rounded),
-                onPressed: onPasteKey,
               ),
             ),
             minLines: 5,
@@ -184,7 +198,14 @@ class HostAuthenticationSection extends StatelessWidget {
                 ? keyMaterialValidator
                 : null,
           ),
-          const SizedBox(height: 12),
+          if (keyInspection != null) ...[
+            const SizedBox(height: 12),
+            SshKeySummary(
+              inspection: keyInspection!,
+              onViewPublicKey: onViewPublicKey,
+            ),
+          ],
+          const SizedBox(height: 16),
           TextFormField(
             controller: passphraseController,
             decoration: InputDecoration(
@@ -207,7 +228,7 @@ class HostAuthenticationSection extends StatelessWidget {
             ),
             obscureText: !showPassphrase,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 10),
           Material(
             color: Colors.transparent,
             child: SwitchListTile(
