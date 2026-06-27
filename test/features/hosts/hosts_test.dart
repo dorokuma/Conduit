@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/features/hosts/data/dartssh2_ssh_key_service.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
+import 'package:conduit/features/hosts/domain/saved_hosts_repository.dart';
 import 'package:conduit/features/hosts/domain/ssh_key.dart';
 import 'package:conduit/features/hosts/presentation/host_form_page.dart';
 import 'package:conduit/features/hosts/presentation/hosts_controller.dart';
@@ -438,6 +439,9 @@ void main() {
   });
 
   group('HostsController', () {
+    final older = DateTime.parse('2026-01-01T10:00:00Z');
+    final newer = DateTime.parse('2026-01-02T10:00:00Z');
+
     test('upsert + load surfaces persisted hosts', () async {
       final repository = FakeHostsRepository();
       final controller = HostsController(repository);
@@ -461,6 +465,77 @@ void main() {
       final saved = repository.persisted.single;
       expect(saved.username, 'new');
       expect(saved.lastConnectedAt, isNotNull);
+    });
+
+    test('sorts by last connected by default', () async {
+      final repository = FakeHostsRepository()
+        ..persisted = [
+          buildHost('a').copyWith(name: 'Alpha', lastConnectedAt: older),
+          buildHost('b').copyWith(name: 'Beta'),
+          buildHost('c').copyWith(name: 'Gamma', lastConnectedAt: newer),
+        ];
+      final controller = HostsController(repository);
+
+      await controller.load();
+
+      expect(controller.sortedHosts.map((host) => host.name), [
+        'Gamma',
+        'Alpha',
+        'Beta',
+      ]);
+    });
+
+    test('can keep a static name sort', () async {
+      final repository = FakeHostsRepository()
+        ..persistedSortMode = HostListSortMode.name
+        ..persisted = [
+          buildHost('c').copyWith(name: 'Gamma', lastConnectedAt: newer),
+          buildHost('a').copyWith(name: 'Alpha', lastConnectedAt: older),
+          buildHost('b').copyWith(name: 'Beta'),
+        ];
+      final controller = HostsController(repository);
+
+      await controller.load();
+      await controller.markConnected(repository.persisted.first);
+
+      expect(controller.sortMode, HostListSortMode.name);
+      expect(controller.sortedHosts.map((host) => host.name), [
+        'Alpha',
+        'Beta',
+        'Gamma',
+      ]);
+    });
+
+    test('can keep a static added sort', () async {
+      final repository = FakeHostsRepository()
+        ..persistedSortMode = HostListSortMode.added
+        ..persisted = [
+          buildHost('c').copyWith(name: 'Gamma', lastConnectedAt: newer),
+          buildHost('a').copyWith(name: 'Alpha', lastConnectedAt: older),
+          buildHost('b').copyWith(name: 'Beta'),
+        ];
+      final controller = HostsController(repository);
+
+      await controller.load();
+      await controller.markConnected(repository.persisted.first);
+
+      expect(controller.sortMode, HostListSortMode.added);
+      expect(controller.sortedHosts.map((host) => host.name), [
+        'Gamma',
+        'Alpha',
+        'Beta',
+      ]);
+    });
+
+    test('persists selected sort mode', () async {
+      final repository = FakeHostsRepository();
+      final controller = HostsController(repository);
+      await controller.load();
+
+      await controller.setSortMode(HostListSortMode.name);
+
+      expect(repository.persistedSortMode, HostListSortMode.name);
+      expect(controller.sortMode, HostListSortMode.name);
     });
   });
 }

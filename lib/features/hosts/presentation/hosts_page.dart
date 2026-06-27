@@ -6,6 +6,7 @@ import 'package:conduit/core/presentation/theme_sheet.dart';
 import 'package:conduit/core/theme/theme_controller.dart';
 import 'package:conduit/features/app_lock/presentation/app_lock_controller.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
+import 'package:conduit/features/hosts/domain/saved_hosts_repository.dart';
 import 'package:conduit/features/hosts/presentation/host_form_page.dart';
 import 'package:conduit/features/hosts/presentation/hosts_controller.dart';
 import 'package:conduit/features/hosts/presentation/widgets/connection_fab.dart';
@@ -198,18 +199,30 @@ class _HostsPageState extends State<HostsPage> {
       );
     }
 
-    final filteredHosts = _filteredHosts(controller.recentHosts);
+    final filteredHosts = _filteredHosts(controller.sortedHosts);
     final tags = _tagsFor(controller.hosts);
 
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(18, 0, 18, 120),
       sliver: SliverList(
         delegate: SliverChildListDelegate.fixed([
-          HostSearchField(
-            controller: _searchController,
-            onChanged: (value) => setState(() => _query = value),
-            hasContent: _query.isNotEmpty || _selectedTag != null,
-            onClear: _clearFilters,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: HostSearchField(
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => _query = value),
+                  hasContent: _query.isNotEmpty || _selectedTag != null,
+                  onClear: _clearFilters,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _HostSortMenu(
+                value: controller.sortMode,
+                onChanged: widget.hostsController.setSortMode,
+              ),
+            ],
           ),
           if (tags.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -435,4 +448,48 @@ class _HostsPageState extends State<HostsPage> {
       await widget.hostsController.remove(host);
     }
   }
+}
+
+class _HostSortMenu extends StatelessWidget {
+  const _HostSortMenu({required this.value, required this.onChanged});
+
+  final HostListSortMode value;
+  final ValueChanged<HostListSortMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<HostListSortMode>(
+      tooltip: 'Sort machines',
+      initialValue: value,
+      onSelected: onChanged,
+      icon: const Icon(Icons.sort_rounded),
+      itemBuilder: (context) => [
+        for (final mode in HostListSortMode.values)
+          PopupMenuItem(
+            value: mode,
+            child: Row(
+              children: [
+                Icon(mode.icon, size: 18),
+                const SizedBox(width: 10),
+                Text(mode.label),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+extension on HostListSortMode {
+  String get label => switch (this) {
+    HostListSortMode.lastConnected => 'Last connected',
+    HostListSortMode.name => 'Name',
+    HostListSortMode.added => 'Added',
+  };
+
+  IconData get icon => switch (this) {
+    HostListSortMode.lastConnected => Icons.schedule_rounded,
+    HostListSortMode.name => Icons.sort_by_alpha_rounded,
+    HostListSortMode.added => Icons.playlist_add_check_rounded,
+  };
 }
