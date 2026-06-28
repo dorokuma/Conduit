@@ -20,7 +20,9 @@ class TerminalKeyboardBar extends StatelessWidget {
     required this.fullscreen,
     required this.onToggleFullscreen,
     required this.onEnterTmuxScrollMode,
+    required this.onExitTmuxScrollMode,
     required this.tmuxPrefixKey,
+    required this.tmuxScrollMode,
     super.key,
   });
 
@@ -32,7 +34,9 @@ class TerminalKeyboardBar extends StatelessWidget {
   final bool fullscreen;
   final VoidCallback onToggleFullscreen;
   final VoidCallback onEnterTmuxScrollMode;
+  final VoidCallback onExitTmuxScrollMode;
   final TmuxPrefixKey tmuxPrefixKey;
+  final bool tmuxScrollMode;
 
   @override
   Widget build(BuildContext context) {
@@ -168,6 +172,13 @@ class TerminalKeyboardBar extends StatelessWidget {
         brightness: brightness,
         onPressed: _sendTmuxPrefix,
       ),
+      TerminalKeyboardAction.tmuxScrollback => _Key(
+        label: action.label,
+        palette: palette,
+        brightness: brightness,
+        selected: tmuxScrollMode,
+        onPressed: _toggleTmuxScrollMode,
+      ),
       TerminalKeyboardAction.tmuxMenu => _MenuKey<_TmuxAction>(
         label: 'Tmux+',
         tooltip: 'Tmux actions',
@@ -238,6 +249,7 @@ class TerminalKeyboardBar extends StatelessWidget {
       case TerminalKeyboardAction.paste:
       case TerminalKeyboardAction.functionKeys:
       case TerminalKeyboardAction.tmuxPrefix:
+      case TerminalKeyboardAction.tmuxScrollback:
       case TerminalKeyboardAction.tmuxMenu:
         break;
     }
@@ -255,6 +267,16 @@ class TerminalKeyboardBar extends StatelessWidget {
       onEnterTmuxScrollMode();
     }
     _focusTerminal();
+  }
+
+  void _toggleTmuxScrollMode() {
+    if (tmuxScrollMode) {
+      controller.sendText('q');
+      onExitTmuxScrollMode();
+      _focusTerminal();
+      return;
+    }
+    _triggerTmuxAction(_TmuxAction.copyMode);
   }
 
   void _triggerCustomItem(TerminalKeyboardItem item) {
@@ -444,6 +466,7 @@ class _Key extends StatelessWidget {
     this.label,
     this.icon,
     this.repeat = false,
+    this.selected = false,
   });
 
   final AppPalette palette;
@@ -452,16 +475,25 @@ class _Key extends StatelessWidget {
   final IconData? icon;
   final VoidCallback? onPressed;
   final bool repeat;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final isIconKey = icon != null;
     final enabled = onPressed != null;
     final foreground = enabled
-        ? palette.foregroundFor(brightness)
+        ? selected
+              ? palette.accent
+              : palette.foregroundFor(brightness)
         : palette.mutedForegroundFor(brightness);
+    final background = selected
+        ? Color.alphaBlend(
+            palette.accent.withValues(alpha: 0.22),
+            palette.panelFor(brightness),
+          )
+        : palette.panelFor(brightness);
     return _KeySurface(
-      color: palette.panelFor(brightness),
+      color: background,
       onPressed: onPressed,
       repeat: repeat,
       child: Container(
@@ -472,9 +504,12 @@ class _Key extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: enabled
+            color: selected
+                ? palette.accent.withValues(alpha: 0.7)
+                : enabled
                 ? palette.hairlineFor(brightness)
                 : palette.hairlineFor(brightness).withValues(alpha: 0.55),
+            width: selected ? 1.3 : 1,
           ),
         ),
         child: icon == null

@@ -15,6 +15,7 @@ import 'package:conduit/features/terminal/presentation/host_key_prompt_coordinat
 import 'package:conduit/features/terminal/presentation/terminal_keyboard_bar.dart';
 import 'package:conduit/features/terminal/presentation/terminal_keyboard_controller.dart';
 import 'package:conduit/features/terminal/presentation/terminal_session_controller.dart';
+import 'package:conduit/features/terminal/presentation/widgets/terminal_surface.dart';
 import 'package:conduit_vt/conduit_vt.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:dartssh2/dartssh2.dart';
@@ -270,7 +271,9 @@ void main() {
               fullscreen: false,
               onToggleFullscreen: () {},
               onEnterTmuxScrollMode: () {},
+              onExitTmuxScrollMode: () {},
               tmuxPrefixKey: TmuxPrefixKey.controlB,
+              tmuxScrollMode: false,
             ),
           ),
         ),
@@ -329,7 +332,9 @@ void main() {
               fullscreen: false,
               onToggleFullscreen: () {},
               onEnterTmuxScrollMode: () {},
+              onExitTmuxScrollMode: () {},
               tmuxPrefixKey: TmuxPrefixKey.controlB,
+              tmuxScrollMode: false,
             ),
           ),
         ),
@@ -388,7 +393,9 @@ void main() {
               fullscreen: false,
               onToggleFullscreen: () {},
               onEnterTmuxScrollMode: () {},
+              onExitTmuxScrollMode: () {},
               tmuxPrefixKey: TmuxPrefixKey.controlB,
+              tmuxScrollMode: false,
             ),
           ),
         ),
@@ -399,6 +406,91 @@ void main() {
 
       expect(controller.sentText, ['git status\r']);
       expect(controller.sentControlKeys, [TerminalKey.keyA]);
+    });
+
+    testWidgets('tmux scroll key enters scrollback mode', (tester) async {
+      final controller = _RecordingTerminalSessionController();
+      final focusNode = FocusNode();
+      var enteredScrollMode = false;
+      var exitedScrollMode = false;
+      addTearDown(focusNode.dispose);
+      addTearDown(controller.dispose);
+
+      Widget buildBar({required bool tmuxScrollMode}) => MaterialApp(
+        home: Scaffold(
+          body: TerminalKeyboardBar(
+            controller: controller,
+            focusNode: focusNode,
+            palette: AppPalette.catppuccin,
+            brightness: Brightness.dark,
+            items: const [
+              TerminalKeyboardItem.builtIn(
+                TerminalKeyboardAction.tmuxScrollback,
+              ),
+            ],
+            fullscreen: false,
+            onToggleFullscreen: () {},
+            onEnterTmuxScrollMode: () => enteredScrollMode = true,
+            onExitTmuxScrollMode: () => exitedScrollMode = true,
+            tmuxPrefixKey: TmuxPrefixKey.controlB,
+            tmuxScrollMode: tmuxScrollMode,
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(buildBar(tmuxScrollMode: false));
+      await tester.tap(find.text('Scroll'));
+
+      expect(controller.sentControlKeys, [TerminalKey.keyB]);
+      expect(controller.sentText, ['[']);
+      expect(enteredScrollMode, isTrue);
+
+      await tester.pumpWidget(buildBar(tmuxScrollMode: true));
+      await tester.tap(find.text('Scroll'));
+
+      expect(controller.sentText, ['[', 'q']);
+      expect(exitedScrollMode, isTrue);
+    });
+
+    testWidgets('tmux scroll mode drags without visible overlay', (
+      tester,
+    ) async {
+      final controller = _RecordingTerminalSessionController();
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TerminalSurface(
+              session: controller,
+              palette: AppPalette.catppuccin,
+              brightness: Brightness.dark,
+              fontFamily: 'monospace',
+              fontSize: 14,
+              onFontSizeChanged: (_) {},
+              predictiveEchoEnabled: false,
+              focusNode: focusNode,
+              tmuxScrollMode: true,
+              onExitTmuxScrollMode: () {},
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('tmux scroll'), findsNothing);
+      expect(find.text('Exit'), findsNothing);
+
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, 84));
+      await tester.pump();
+
+      expect(controller.sentKeys, isNotEmpty);
+      expect(controller.sentKeys, everyElement(TerminalKey.arrowUp));
+      expect(controller.sentKeys, isNot(contains(TerminalKey.pageUp)));
+      expect(controller.sentKeys, isNot(contains(TerminalKey.pageDown)));
+
+      await tester.pump(const Duration(milliseconds: 250));
     });
 
     test('keyboard input clears toggled row modifiers after one key', () {
