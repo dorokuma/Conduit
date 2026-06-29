@@ -1,27 +1,27 @@
-# Corresponding source offer for bundled local-shell binaries
+# Corresponding source for generated local-shell binaries
 
-Conduit bundles prebuilt Android/aarch64 binaries in
+Conduit release builds generate Android/aarch64 binaries in
 `android/app/src/main/jniLibs/arm64-v8a/` for the optional on-device local Arch
-Linux shell. This directory records the source-offer information for those
-binaries.
+Linux shell. This directory records the corresponding-source information for
+those generated binaries.
 
 Conduit redistributes these binaries; it does not claim authorship of them. They
-are built and packaged by the Termux project through the `termux-packages`
-repository.
+are built from the pinned Termux `termux-packages` recipes.
 
 The bundled files and versions are listed in
 [`../../THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md). GPL/LGPL license
 texts and component-specific notices are in [`../licenses`](../licenses) and
 [`../notices`](../notices).
 
-The exact binaries currently shipped by this repository are identified by
-[`bundled-binaries.sha256`](bundled-binaries.sha256).
+The expected generated binaries are identified by
+[`bundled-binaries.sha256`](bundled-binaries.sha256). The binaries themselves
+are not checked in; release and reproducible-build pipelines regenerate them.
 
 The GPL/LGPL upstream source archives named by the pinned Termux recipes are
 included in [`upstream-sources`](upstream-sources) and identified by
 [`upstream-sources.sha256`](upstream-sources.sha256).
 
-The exact Termux `.deb` packages used as source material are identified in
+Reference Termux `.deb` packages for the same package versions are identified in
 [`termux-package-checksums.md`](termux-package-checksums.md). The relevant
 Termux package recipes and patches are snapshotted in
 [`termux-recipes`](termux-recipes), pinned to upstream commit:
@@ -47,7 +47,7 @@ package version shipped by Conduit.
 | acl / attr 2.5.2-1 | `libacl.so`, `libattr.so` | LGPL-2.1-or-later | [`upstream-sources/attr-2.5.2.tar.gz`](upstream-sources/attr-2.5.2.tar.gz) and [`termux-recipes/packages/attr`](termux-recipes/packages/attr) |
 | GNU libiconv 1.18-1 | `libiconv.so`, `libcharset.so` | LGPL-2.1-or-later | [`upstream-sources/libiconv-1.18.tar.gz`](upstream-sources/libiconv-1.18.tar.gz) and [`termux-recipes/packages/libiconv`](termux-recipes/packages/libiconv) |
 
-For public release builds, do not replace any bundled `.so` without updating
+For public release builds, do not change any generated `.so` without updating
 `bundled-binaries.sha256`, `upstream-sources/*`, `upstream-sources.sha256`,
 `termux-package-checksums.md`, `termux-recipes/packages/*`, this table, and
 `THIRD_PARTY_NOTICES.md` in the same change.
@@ -66,9 +66,10 @@ the replacement strings are shorter than the originals. No source code changes
 are made by Conduit.
 
 The exact, reproducible transformation is the script
-[`rewrite-soname.sh`](rewrite-soname.sh) in this directory. Run it from the repo
-root after refreshing the binaries from the pinned Termux packages, then refresh
-`bundled-binaries.sha256`:
+[`rewrite-soname.sh`](rewrite-soname.sh) in this directory. It is run by
+[`../../tools/build-local-shell-binaries.sh`](../../tools/build-local-shell-binaries.sh)
+after rebuilding the pinned Termux packages. If intentionally changing the
+generated payload, refresh `bundled-binaries.sha256`:
 
 ```bash
 third_party/source-offer/rewrite-soname.sh
@@ -86,6 +87,26 @@ for f in android/app/src/main/jniLibs/arm64-v8a/*.so; do
   readelf -d "$f" | grep -E 'NEEDED|SONAME'
 done
 ```
+
+## Rebuilding for releases
+
+Release and reproducible-build pipelines regenerate the native payload before
+building APKs:
+
+```bash
+tools/build-local-shell-binaries.sh
+```
+
+The script uses the pinned `termux-packages` commit above for the full Termux
+build system, builds the Android aarch64 package set, copies and renames the
+needed outputs into `android/app/src/main/jniLibs/arm64-v8a/`, runs
+`rewrite-soname.sh`, and checks `bundled-binaries.sha256`. F-Droid provides the
+Termux checkout with `TERMUX_PACKAGES_DIR`; otherwise the script clones it.
+
+The `third_party/source-offer/termux-recipes` snapshot is kept for compliance
+and review. It is not a complete replacement for Termux's build system; the
+full pinned `termux-packages` checkout supplies `build-package.sh`, toolchain
+setup, dependency handling, and package massage logic.
 
 ## Root filesystem
 

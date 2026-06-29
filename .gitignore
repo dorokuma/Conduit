@@ -34,6 +34,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/app/src/main/jniLibs/arm64-v8a/
 /android/key.properties
 /android/*.jks
 /android/app/*.jks

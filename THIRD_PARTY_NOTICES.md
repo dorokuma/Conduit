@@ -4,11 +4,11 @@ Conduit's own source code is licensed under Apache-2.0. This file covers
 third-party components that are redistributed with Android builds of Conduit and
 remain under their own licenses.
 
-Conduit bundles prebuilt native binaries to provide the on-device local Arch
-Linux shell. They live in `android/app/src/main/jniLibs/arm64-v8a/` (renamed to
-`lib*.so` so Android packages and extracts them) and are obtained from the
-[Termux](https://github.com/termux) package repository, which builds them for
-Android's bionic libc.
+Conduit release builds generate native binaries to provide the on-device local
+Arch Linux shell. They are placed in `android/app/src/main/jniLibs/arm64-v8a/`
+(renamed to `lib*.so` so Android packages and extracts them) and are built from
+the pinned [Termux](https://github.com/termux) package recipes for Android's
+bionic libc.
 
 GPL/LGPL license texts are included under
 [`third_party/licenses`](third_party/licenses). Component-specific notices for

@@ -1,9 +1,9 @@
 # Termux package checksums
 
-These records identify the exact Termux Android/aarch64 `.deb` packages used as
-the source material for Conduit's bundled local-shell binaries. The records were
-copied from the Termux `stable/main/binary-aarch64/Packages` index on
-2026-06-27.
+These records identify reference Termux Android/aarch64 `.deb` packages for the
+same package versions used by Conduit's generated local-shell binaries. The
+records were copied from the Termux `stable/main/binary-aarch64/Packages` index
+on 2026-06-27.
 
 Termux package recipes and patches for these packages are snapshotted in
 [`termux-recipes`](termux-recipes), pinned to `termux-packages` commit

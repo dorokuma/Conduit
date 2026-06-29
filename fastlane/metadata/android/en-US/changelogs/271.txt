@@ -1,0 +1,1 @@
+Build local shell native binaries from pinned Termux source recipes instead of shipping checked-in prebuilts, so release and reproducible-build pipelines can rebuild the arm64 payload.

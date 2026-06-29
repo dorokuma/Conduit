@@ -28,9 +28,9 @@ const Map<String, String> _noticeAssets = {
 };
 
 const String _notice = '''
-The on-device local Arch Linux shell bundles prebuilt Android (aarch64) binaries
-that Conduit redistributes but did not create. They are maintained and packaged
-by the Termux project (https://termux.dev) and are used under their respective
+The on-device local Arch Linux shell includes Android (aarch64) binaries that
+Conduit redistributes but did not create. They are built from pinned Termux
+package recipes (https://termux.dev) and are used under their respective
 open-source licenses:
 
   proot ................. GPL-2.0      (github.com/termux/proot)
