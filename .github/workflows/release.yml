@@ -27,6 +27,12 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -38,18 +44,46 @@ jobs:
 
       - name: Build local shell native binaries
         run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            debian:trixie \
+          docker_args=(--rm)
+          if [[ -n "${ACT:-}" ]]; then
+            act_container="$(docker ps --format '{{.ID}} {{.Names}}' | awk '/act-Release-Test-and-release/ { print $1; exit }')"
+            if [[ -z "$act_container" ]]; then
+              echo "Could not find the running act job container." >&2
+              exit 1
+            fi
+            docker_args+=(--volumes-from "$act_container" -w "$PWD")
+          else
+            docker_args+=(-v "$PWD:/workspace" -w /workspace)
+          fi
+          docker run "${docker_args[@]}" debian:trixie \
             bash -lc '
               set -euo pipefail
               apt-get update
-              apt-get install -y autoconf autogen automake autopoint bison build-essential curl file flex g++ g++-multilib gawk gettext gnupg gperf git intltool jq libfl-dev libglib2.0-dev libltdl-dev libtool-bin lrzip lzip lz4 lzop m4 patch patchelf pkg-config python-is-python3 python3-pip python3-setuptools python3-venv python-wheel-common rsync scons sudo tar unzip wget xz-utils zip zstd
-              git config --global --add safe.directory /workspace
-              TERMUX_QUIET_BUILD=true tools/build-local-shell-binaries.sh
-              chown -R '"$(id -u):$(id -g)"' android/app/src/main/jniLibs build/local-shell-native third_party/source-offer/bundled-binaries.sha256
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends autoconf autogen automake autopoint bison build-essential curl file flex g++ g++-multilib gawk gettext gnupg gperf git intltool jq libfl-dev libglib2.0-dev libltdl-dev libtool-bin lrzip lzip lz4 lzop m4 openjdk-21-jdk-headless patch patchelf pkg-config python-is-python3 python3-pip python3-setuptools python3-venv python-wheel-common rsync scons sudo tar unzip wget xz-utils zip zstd
+              git config --global --add safe.directory "$(pwd)"
+              git config --global --add safe.directory "$(pwd)/build/local-shell-native/termux-packages"
+              CONDUIT_KEEP_LOCAL_SHELL_BUILD_ARTIFACTS=1 TERMUX_JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 TERMUX_QUIET_BUILD=true tools/build-local-shell-binaries.sh
+              chown -R '"$(id -u):$(id -g)"' android/app/src/main/jniLibs build/local-shell-native third_party/source-offer/bundled-binaries.sha256 || true
             '
+          android_sdk="$PWD/build/local-shell-native/android-sdk-9123335"
+          android_ndk="$PWD/build/local-shell-native/android-ndk-r29"
+          test -d "$android_sdk"
+          test -d "$android_ndk"
+          if [[ -n "${GITHUB_ENV:-}" ]]; then
+            {
+              echo "ANDROID_HOME=$android_sdk"
+              echo "ANDROID_SDK_ROOT=$android_sdk"
+              echo "ANDROID_NDK_HOME=$android_ndk"
+              echo "ANDROID_NDK_ROOT=$android_ndk"
+              echo "NDK=$android_ndk"
+            } >> "$GITHUB_ENV"
+          fi
+          if [[ -n "${GITHUB_PATH:-}" ]]; then
+            {
+              echo "$android_sdk/platform-tools"
+              echo "$android_sdk/cmdline-tools/bin"
+            } >> "$GITHUB_PATH"
+          fi
 
       - name: Configure Android signing
         shell: bash
