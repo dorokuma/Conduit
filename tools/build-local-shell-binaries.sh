@@ -32,6 +32,8 @@ Environment:
                                build/local-shell-native/android-sdk-9123335.
   NDK                          Android NDK directory. Defaults to
                                build/local-shell-native/android-ndk-r29.
+  TERMUX_TOPDIR                Termux package build root. Defaults to
+                               /tmp/conduit-termux-build for reproducible paths.
   CONDUIT_KEEP_LOCAL_SHELL_BUILD_ARTIFACTS=1
                                Keep extracted Termux package outputs for debugging.
 USAGE
@@ -56,6 +58,7 @@ STAGE_DIR="$BUILD_ROOT/stage"
 export ANDROID_HOME="${ANDROID_HOME:-$BUILD_ROOT/android-sdk-9123335}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 export NDK="${NDK:-$BUILD_ROOT/android-ndk-r29}"
+export TERMUX_TOPDIR="${TERMUX_TOPDIR:-${CONDUIT_TERMUX_TOPDIR:-/tmp/conduit-termux-build}}"
 
 if [ -z "$TERMUX_PACKAGES_DIR" ]; then
   TERMUX_PACKAGES_DIR="$BUILD_ROOT/termux-packages"
@@ -68,6 +71,11 @@ fi
 
 git -C "$TERMUX_PACKAGES_DIR" fetch --tags --force origin "$TERMUX_PACKAGES_COMMIT" || true
 git -C "$TERMUX_PACKAGES_DIR" checkout -f "$TERMUX_PACKAGES_COMMIT"
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$TERMUX_PACKAGES_DIR" show -s --format=%ct "$TERMUX_PACKAGES_COMMIT")}"
+export TZ=UTC
+export LC_ALL=C
+export LANG=C
+export KCONFIG_NOTIMESTAMP=1
 
 termux_env() {
   TERMUX_PKGS__BUILD__REPO_ROOT_DIR="$TERMUX_PACKAGES_DIR" "$@"
@@ -86,6 +94,9 @@ sed -i -E \
 sed -i -E \
   's/(^|[[:space:]])coreutils-from-uutils([[:space:]]|$)/ /g' \
   "$TERMUX_PACKAGES_DIR/scripts/setup-ubuntu.sh"
+
+perl -0pi -e 's#local TERMUX_ARCH_FILE=/data/TERMUX_ARCH#local TERMUX_ARCH_FILE="\$\{TERMUX_TOPDIR\}/TERMUX_ARCH"\n\tmkdir -p "\$\{TERMUX_TOPDIR\}"#' \
+  "$TERMUX_PACKAGES_DIR/scripts/build/termux_step_handle_buildarch.sh"
 
 perl -0pi -e 's#if ! mountpoint -q "\$\{TERMUX_STANDALONE_TOOLCHAIN\}"; then\n\t\tfuse-overlayfs \\\n\t\t\t"\$\{TERMUX_STANDALONE_TOOLCHAIN\}" \\\n\t\t\t-o lowerdir="\$\{NDK\}/toolchains/llvm/prebuilt/linux-x86_64" \\\n\t\t\t-o upperdir="\$\{TERMUX_STANDALONE_TOOLCHAIN\}-upper" \\\n\t\t\t-o workdir="\$\{TERMUX_STANDALONE_TOOLCHAIN\}-work"\n\tfi#if [ ! -e "\${TERMUX_STANDALONE_TOOLCHAIN}/bin/clang" ]; then\n\t\tcp -a "\${NDK}/toolchains/llvm/prebuilt/linux-x86_64/." "\${TERMUX_STANDALONE_TOOLCHAIN}/"\n\tfi#' \
   "$TERMUX_PACKAGES_DIR/scripts/build/toolchain/termux_setup_toolchain_29.sh"
@@ -197,11 +208,33 @@ copy_output "lib/libpcre2-8.so*" "libpcre2-8.so"
 
 (cd "$ROOT" && third_party/source-offer/rewrite-soname.sh)
 
+verify_checksums() {
+  local expected path actual failed=0
+
+  while read -r expected path; do
+    if [ -z "$expected" ] || [ -z "$path" ]; then
+      continue
+    fi
+
+    actual="$(sha256sum "$path" | awk '{print $1}')"
+    if [ "$actual" = "$expected" ]; then
+      echo "$path: OK"
+    else
+      echo "$path: FAILED"
+      echo "  expected: $expected"
+      echo "  actual:   $actual"
+      failed=1
+    fi
+  done < third_party/source-offer/bundled-binaries.sha256
+
+  return "$failed"
+}
+
 if [ "$UPDATE_CHECKSUMS" -eq 1 ]; then
   (cd "$ROOT" && sha256sum android/app/src/main/jniLibs/arm64-v8a/*.so \
     > third_party/source-offer/bundled-binaries.sha256)
 else
-  (cd "$ROOT" && sha256sum -c third_party/source-offer/bundled-binaries.sha256)
+  (cd "$ROOT" && verify_checksums)
 fi
 
 (cd "$ROOT" && third_party/source-offer/rewrite-soname.sh --verify)

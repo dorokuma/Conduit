@@ -3,7 +3,7 @@ d6505f6370b2b8ae8c3ae6080d4a0bb76ff9b938aef6f54dbd5e4847ab1fde69  android/app/sr
 22de4f5b9fdfd6c2681f91fe5a2629cc01ac965fb20850085228999413734d68  android/app/src/main/jniLibs/arm64-v8a/libandroid-selinux.so
 84475798e07c8174dbbfaec70a827fdb02f19ffa69a589380c13e7507fd0e731  android/app/src/main/jniLibs/arm64-v8a/libandroid-shmem.so
 07ef198ea79d0e4e7b5a120fe139aebab31b3ceed989b4aec3873f84de102ded  android/app/src/main/jniLibs/arm64-v8a/libattr.so
-202f6016865c1720e8582409ff305562a9ad63c93ac16c479085aaea76f99cea  android/app/src/main/jniLibs/arm64-v8a/libbusybox.so
+31801e4a40efce32e462dac562cca503ea2d2e2e2e2a728d454c7cb362e9c193  android/app/src/main/jniLibs/arm64-v8a/libbusybox.so
 1352e85ba3d4217d764ae9f5511d896814a15380b0f8e50b1a081e33868a6890  android/app/src/main/jniLibs/arm64-v8a/libbusyboxbin.so
 4f0a884d533539c724b5a23e3e6a4ec8035c5c4051ad082632a0a0da015e57ff  android/app/src/main/jniLibs/arm64-v8a/libcharset.so
 0ec99d0a3a4877631511c8f50df0552c576a1815f8eb17ec243af683e5aa6114  android/app/src/main/jniLibs/arm64-v8a/libiconv.so
@@ -12,5 +12,5 @@ a9511ce2b4012c17225d1e883bb264fb1a3233af43562d400bd2db53e8ac13bd  android/app/sr
 3603dbff0c800486f9a78b943a752f16fbf38ce6efb9548e2a68875708e38cf2  android/app/src/main/jniLibs/arm64-v8a/libproot.so
 44ef39c1e1a18c09f6e4c4b5d6f8bba82d30596598bd155ec162d05c5122ff04  android/app/src/main/jniLibs/arm64-v8a/libproot_loader.so
 4e24c815ff14c14936a06c5207cf35a95dbbc0c5dbbe5bf8e83bee0af299655e  android/app/src/main/jniLibs/arm64-v8a/libtalloc.so
-35230a3010fd1467dca62d1315aceec006f69c62dbeecc1b1a16c1ff0982d9a7  android/app/src/main/jniLibs/arm64-v8a/libtarbin.so
+e799899e62dc5414c5cd045005d67f89a9a49f0750d7cfe73be1f55f99055680  android/app/src/main/jniLibs/arm64-v8a/libtarbin.so
 9c061641652e478970da3f9c0b017f4546b3f91e308e5d0899ef7ff1d99c031f  android/app/src/main/jniLibs/arm64-v8a/libxzbin.so
