@@ -450,6 +450,19 @@ class _HostsPageState extends State<HostsPage> {
   }
 
   Future<void> _openLocalSession() async {
+    if (widget.localShellController.sharedStorageFeatureEnabled &&
+        !widget.localShellController.sharedStorageAccessGranted) {
+      await widget.localShellController.requestSharedStorageAccess();
+      if (!widget.localShellController.sharedStorageAccessGranted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Grant file access, then open the shell again.'),
+          ),
+        );
+        return;
+      }
+    }
     widget.workspaceController.open(widget.localShellController.localHost());
     if (!mounted) return;
     await _openTerminalWorkspace();
