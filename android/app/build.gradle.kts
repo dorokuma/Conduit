@@ -111,7 +111,7 @@ val copyFullReleaseFlutterApksToLegacyNames by tasks.registering {
     }
 }
 
-tasks.matching { it.name == "assembleRelease" }.configureEach {
+tasks.matching { it.name == "assembleRelease" || it.name == "assembleFullRelease" }.configureEach {
     finalizedBy(copyFullReleaseFlutterApksToLegacyNames)
 }
 

@@ -157,7 +157,10 @@ jobs:
           tag_name: ${{ steps.metadata.outputs.tag }}
           name: ${{ steps.metadata.outputs.name }}
           target_commitish: ${{ github.sha }}
-          files: build/app/outputs/flutter-apk/*-release.apk
+          files: |
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-x86_64-release.apk
           generate_release_notes: true
           make_latest: true
         env:
