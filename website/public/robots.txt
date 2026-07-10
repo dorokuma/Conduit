@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://conduit.gwitko.dev/sitemap.xml
