@@ -332,6 +332,27 @@ class _TerminalAppearanceControls extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
+        Material(
+          color: colorScheme.surface,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SwitchListTile(
+            secondary: const Icon(Icons.mouse_rounded),
+            title: const Text('Send mouse taps'),
+            subtitle: Text(
+              'Forward terminal taps as mouse clicks when apps enable mouse tracking.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            value: controller.terminalMouseInput,
+            onChanged: controller.setTerminalMouseInput,
+          ),
+        ),
+        const SizedBox(height: 14),
         Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(

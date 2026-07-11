@@ -12,6 +12,7 @@ class TerminalSurface extends StatefulWidget {
     required this.fontSize,
     required this.onFontSizeChanged,
     required this.predictiveEchoEnabled,
+    required this.terminalMouseInput,
     required this.focusNode,
     required this.tmuxScrollMode,
     required this.onExitTmuxScrollMode,
@@ -25,6 +26,7 @@ class TerminalSurface extends StatefulWidget {
   final double fontSize;
   final ValueChanged<double> onFontSizeChanged;
   final bool predictiveEchoEnabled;
+  final bool terminalMouseInput;
   final FocusNode? focusNode;
   final bool tmuxScrollMode;
   final VoidCallback onExitTmuxScrollMode;
@@ -38,10 +40,20 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   double? _pinchStartDistance;
   double? _pinchStartFontSize;
   double _tmuxScrollDelta = 0;
+  late final TerminalController _terminalController;
+
+  static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
+    return terminalMouseInput
+        ? const PointerInputs({PointerInput.tap})
+        : const PointerInputs.none();
+  }
 
   @override
   void initState() {
     super.initState();
+    _terminalController = TerminalController(
+      pointerInputs: _pointerInputsFor(widget.terminalMouseInput),
+    );
     widget.session.predictiveEchoEnabled = widget.predictiveEchoEnabled;
     WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
   }
@@ -53,9 +65,20 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
         oldWidget.session != widget.session) {
       widget.session.predictiveEchoEnabled = widget.predictiveEchoEnabled;
     }
+    if (oldWidget.terminalMouseInput != widget.terminalMouseInput) {
+      _terminalController.setPointerInputs(
+        _pointerInputsFor(widget.terminalMouseInput),
+      );
+    }
     if (oldWidget.session != widget.session) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
     }
+  }
+
+  @override
+  void dispose() {
+    _terminalController.dispose();
+    super.dispose();
   }
 
   Future<void> _connectIfNeeded() async {
@@ -147,6 +170,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
                 final overlays = widget.session.overlays;
                 return TerminalView(
                   widget.session.terminal,
+                  controller: _terminalController,
                   focusNode: widget.focusNode,
                   autofocus: widget.focusNode != null,
                   deleteDetection: true,

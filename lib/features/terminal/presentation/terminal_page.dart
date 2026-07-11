@@ -194,6 +194,8 @@ class _TerminalPageState extends State<TerminalPage> {
                                 },
                                 predictiveEchoEnabled:
                                     session.host.predictiveEchoEnabled,
+                                terminalMouseInput:
+                                    widget.themeController.terminalMouseInput,
                                 focusNode: session == activeSession
                                     ? _focusNode
                                     : null,

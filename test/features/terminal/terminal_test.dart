@@ -705,6 +705,7 @@ void main() {
               fontSize: 14,
               onFontSizeChanged: (_) {},
               predictiveEchoEnabled: false,
+              terminalMouseInput: false,
               focusNode: focusNode,
               tmuxScrollMode: true,
               onExitTmuxScrollMode: () {},

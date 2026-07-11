@@ -165,6 +165,25 @@ void main() {
       expect(preferences.showLocalShell, isFalse);
     });
 
+    test('defaults terminal mouse input off and persists when enabled', () async {
+      final storage = InMemorySecureStorage();
+      final repository = ThemePreferencesRepository(storage);
+
+      final defaults = await repository.load();
+      expect(defaults.terminalMouseInput, isFalse);
+
+      await repository.save(
+        const ThemePreferences(
+          themeMode: ThemeMode.dark,
+          palette: AppPalette.synthwave,
+          terminalMouseInput: true,
+        ),
+      );
+
+      final preferences = await repository.load();
+      expect(preferences.terminalMouseInput, isTrue);
+    });
+
     test('persists and loads global snippets', () async {
       final storage = InMemorySecureStorage();
       final repository = ThemePreferencesRepository(storage);

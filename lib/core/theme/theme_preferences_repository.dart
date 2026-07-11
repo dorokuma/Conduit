@@ -15,6 +15,7 @@ class ThemePreferences {
     this.terminalKeyboardRows = defaultTerminalKeyboardRows,
     this.terminalSnippets = const [],
     this.showLocalShell = true,
+    this.terminalMouseInput = false,
   });
 
   final ThemeMode themeMode;
@@ -24,6 +25,7 @@ class ThemePreferences {
   final List<TerminalKeyboardRow> terminalKeyboardRows;
   final List<TerminalSnippet> terminalSnippets;
   final bool showLocalShell;
+  final bool terminalMouseInput;
 }
 
 class ThemePreferencesRepository {
@@ -40,6 +42,7 @@ class ThemePreferencesRepository {
       'conduit.terminal_keyboard_seen_actions.v1';
   static const _terminalSnippetsKey = 'conduit.terminal_snippets.v1';
   static const _showLocalShellKey = 'conduit.show_local_shell.v1';
+  static const _terminalMouseInputKey = 'conduit.terminal_mouse_input.v1';
 
   final FlutterSecureStorage _storage;
 
@@ -59,6 +62,9 @@ class ThemePreferencesRepository {
     );
     final rawTerminalSnippets = await _storage.read(key: _terminalSnippetsKey);
     final rawShowLocalShell = await _storage.read(key: _showLocalShellKey);
+    final rawTerminalMouseInput = await _storage.read(
+      key: _terminalMouseInputKey,
+    );
     final terminalFontSize = double.tryParse(rawTerminalFontSize ?? '');
     final terminalKeyboardRows = _appendUnseenBuiltIns(
       _parseTerminalKeyboardRows(
@@ -87,6 +93,7 @@ class ThemePreferencesRepository {
       terminalKeyboardRows: terminalKeyboardRows,
       terminalSnippets: _parseTerminalSnippets(rawTerminalSnippets),
       showLocalShell: rawShowLocalShell == null || rawShowLocalShell == 'true',
+      terminalMouseInput: rawTerminalMouseInput == 'true',
     );
   }
 
@@ -128,6 +135,10 @@ class ThemePreferencesRepository {
     await _storage.write(
       key: _showLocalShellKey,
       value: preferences.showLocalShell.toString(),
+    );
+    await _storage.write(
+      key: _terminalMouseInputKey,
+      value: preferences.terminalMouseInput.toString(),
     );
   }
 
