@@ -6,16 +6,6 @@ class LocalShellStateMachine {
 
   LocalShellState reduce(LocalShellState state, LocalShellEvent event) {
     switch (event) {
-      case DeviceUnsupported(:final reason):
-        return LocalShellState(
-          stage: LocalShellStage.unsupported,
-          error: LocalShellError(LocalShellErrorKind.unsupportedDevice, reason),
-        );
-
-      case (EnvironmentReady() || EnvironmentMissing())
-          when state.isUnsupported:
-        return state;
-
       case EnvironmentReady(:final version, :final diskUsageBytes):
         return LocalShellState(
           stage: LocalShellStage.ready,
@@ -26,11 +16,11 @@ class LocalShellStateMachine {
       case EnvironmentMissing():
         return LocalShellState.notInstalled;
 
-      case InstallRequested():
-        return const LocalShellState(
+      case InstallRequested(:final distroName):
+        return LocalShellState(
           stage: LocalShellStage.downloading,
           progress: 0,
-          message: 'Downloading Arch Linux…',
+          message: 'Downloading $distroName…',
         );
 
       case DownloadProgressed(:final progress):
@@ -48,7 +38,7 @@ class LocalShellStateMachine {
         if (state.stage != LocalShellStage.extracting) return state;
         return const LocalShellState(
           stage: LocalShellStage.configuring,
-          message: 'Configuring pacman & keyring…',
+          message: 'Running first-time setup…',
         );
 
       case ConfigureStarted():

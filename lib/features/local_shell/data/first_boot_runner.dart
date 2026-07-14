@@ -1,8 +1,8 @@
 import 'package:conduit/features/local_shell/data/proot_runner.dart';
 import 'package:conduit/features/local_shell/domain/first_boot_script.dart';
+import 'package:conduit/features/local_shell/domain/local_shell_distro.dart';
 import 'package:conduit/features/local_shell/domain/local_shell_paths.dart';
 import 'package:conduit/features/local_shell/domain/proot_command.dart';
-import 'package:conduit/features/local_shell/domain/rootfs_manifest.dart';
 
 class FirstBootException implements Exception {
   const FirstBootException(this.message);
@@ -14,7 +14,7 @@ class FirstBootException implements Exception {
 }
 
 abstract interface class FirstBootRunner {
-  Future<void> run(RootfsManifest manifest);
+  Future<void> run(LocalShellDistro distro);
 }
 
 class ProotFirstBootRunner implements FirstBootRunner {
@@ -27,11 +27,12 @@ class ProotFirstBootRunner implements FirstBootRunner {
   final FirstBootScript scriptGenerator;
 
   @override
-  Future<void> run(RootfsManifest manifest) async {
+  Future<void> run(LocalShellDistro distro) async {
     final script = scriptGenerator.generate(
       FirstBootConfig(
-        pacmanMirror: manifest.pacmanMirror,
-        keyringName: manifest.keyringName,
+        distroName: distro.name,
+        updateCommand: distro.updateCommand,
+        setupCommands: distro.setupCommands,
         doneMarkerPath: paths.firstBootMarker,
       ),
     );

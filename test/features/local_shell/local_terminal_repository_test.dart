@@ -4,8 +4,10 @@ import 'dart:typed_data';
 
 import 'package:conduit/features/hosts/domain/saved_host.dart';
 import 'package:conduit/features/local_shell/data/local_terminal_repository.dart';
+import 'package:conduit/features/local_shell/domain/local_shell_distro.dart';
 import 'package:conduit/features/local_shell/domain/local_shell_paths.dart';
 import 'package:conduit/features/local_shell/domain/pty_process.dart';
+import 'package:conduit/features/local_shell/local_shell_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -27,7 +29,9 @@ void main() {
 
     test('binds shared Android storage into the local shell', () async {
       late List<String> capturedArguments;
+      final distro = defaultLocalShellDistros().first;
       final paths = LocalShellPaths(
+        instanceId: distro.id,
         nativeLibraryDir: p.join(tempDir.path, 'lib'),
         dataDir: p.join(tempDir.path, 'files'),
         sharedStorageFeatureEnabled: true,
@@ -35,7 +39,8 @@ void main() {
         sharedStorageAccessGranted: true,
       );
       final repository = LocalTerminalRepository(
-        resolvePaths: () async => paths,
+        resolveLaunch: (hostId) async =>
+            LocalShellLaunch(distro: distro, paths: paths),
         processFactory:
             ({
               required executable,
@@ -50,7 +55,7 @@ void main() {
       );
 
       await repository.connect(
-        SavedHost.localShell(id: 'local'),
+        SavedHost.localShell(id: 'local', name: distro.name),
         columns: 80,
         rows: 24,
       );
@@ -65,6 +70,45 @@ void main() {
           '-b',
           '/storage/emulated/0:${LocalShellPaths.androidSharedMountPoint}',
         ]),
+      );
+    });
+
+    test('launches the distro login shell with its prompt label', () async {
+      late List<String> capturedArguments;
+      final distro = defaultLocalShellDistros().singleWhere(
+        (entry) => entry.id == 'alpine',
+      );
+      final paths = LocalShellPaths(
+        instanceId: distro.id,
+        nativeLibraryDir: p.join(tempDir.path, 'lib'),
+        dataDir: p.join(tempDir.path, 'files'),
+      );
+      final repository = LocalTerminalRepository(
+        resolveLaunch: (hostId) async =>
+            LocalShellLaunch(distro: distro, paths: paths),
+        processFactory:
+            ({
+              required executable,
+              required arguments,
+              required environment,
+              required rows,
+              required columns,
+            }) {
+              capturedArguments = arguments;
+              return _FakePtyProcess();
+            },
+      );
+
+      await repository.connect(
+        SavedHost.localShell(id: 'local', name: distro.name),
+        columns: 80,
+        rows: 24,
+      );
+
+      expect(capturedArguments, containsAllInOrder(['/bin/sh', '-l']));
+      expect(
+        capturedArguments.any((argument) => argument.contains('@alpine')),
+        isTrue,
       );
     });
   });

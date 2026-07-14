@@ -13,8 +13,6 @@ void main() {
     'archiveUrl': 'https://mirror.example/arch-aarch64.tar.gz',
     'sha256': abcSha,
     'downloadSizeBytes': 178000000,
-    'pacmanMirror': r'http://mirror.archlinuxarm.org/$arch/$repo',
-    'keyringName': 'archlinuxarm',
   };
 
   group('RootfsManifest.fromJson', () {
@@ -24,12 +22,14 @@ void main() {
       expect(manifest.archiveUrl.host, 'mirror.example');
       expect(manifest.sha256, abcSha);
       expect(manifest.downloadSizeBytes, 178000000);
-      expect(manifest.keyringName, 'archlinuxarm');
     });
 
-    test('defaults the keyring name when omitted', () {
-      final json = validJson()..remove('keyringName');
-      expect(RootfsManifest.fromJson(json).keyringName, 'archlinuxarm');
+    test('ignores unknown keys from older manifests', () {
+      final json = validJson()
+        ..['pacmanMirror'] = r'http://mirror.archlinuxarm.org/$arch/$repo'
+        ..['keyringName'] = 'archlinuxarm';
+      final manifest = RootfsManifest.fromJson(json);
+      expect(manifest.version, '2026.06.01');
     });
 
     test('rejects a missing archive url', () {
@@ -42,14 +42,6 @@ void main() {
 
     test('rejects a malformed checksum', () {
       final json = validJson()..['sha256'] = 'not-a-real-digest';
-      expect(
-        () => RootfsManifest.fromJson(json),
-        throwsA(isA<FormatException>()),
-      );
-    });
-
-    test('rejects a missing mirror', () {
-      final json = validJson()..remove('pacmanMirror');
       expect(
         () => RootfsManifest.fromJson(json),
         throwsA(isA<FormatException>()),

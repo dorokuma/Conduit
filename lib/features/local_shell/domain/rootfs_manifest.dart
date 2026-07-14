@@ -8,8 +8,6 @@ class RootfsManifest {
     required this.archiveUrl,
     required this.sha256,
     required this.downloadSizeBytes,
-    required this.pacmanMirror,
-    this.keyringName = 'archlinuxarm',
   });
 
   final String version;
@@ -18,14 +16,9 @@ class RootfsManifest {
   final String sha256;
   final int downloadSizeBytes;
 
-  final String pacmanMirror;
-
-  final String keyringName;
-
   factory RootfsManifest.fromJson(Map<String, Object?> json) {
     final url = (json['archiveUrl'] as String?)?.trim() ?? '';
     final sha = (json['sha256'] as String?)?.trim().toLowerCase() ?? '';
-    final mirror = (json['pacmanMirror'] as String?)?.trim() ?? '';
     final version = (json['version'] as String?)?.trim() ?? '';
     final size = (json['downloadSizeBytes'] as num?)?.toInt() ?? 0;
 
@@ -44,19 +37,12 @@ class RootfsManifest {
     if (version.isEmpty) {
       throw const FormatException('Manifest is missing "version".');
     }
-    if (mirror.isEmpty) {
-      throw const FormatException('Manifest is missing "pacmanMirror".');
-    }
 
     return RootfsManifest(
       version: version,
       archiveUrl: parsedUrl,
       sha256: sha,
       downloadSizeBytes: size,
-      pacmanMirror: mirror,
-      keyringName: (json['keyringName'] as String?)?.trim().isNotEmpty == true
-          ? (json['keyringName'] as String).trim()
-          : 'archlinuxarm',
     );
   }
 

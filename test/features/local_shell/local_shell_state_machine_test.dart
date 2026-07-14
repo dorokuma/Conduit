@@ -15,15 +15,19 @@ void main() {
     });
 
     test('install request begins downloading at zero progress', () {
-      final next = machine.reduce(notInstalled, const InstallRequested());
+      final next = machine.reduce(
+        notInstalled,
+        const InstallRequested(distroName: 'Arch Linux'),
+      );
       expect(next.stage, LocalShellStage.downloading);
       expect(next.progress, 0);
+      expect(next.message, contains('Arch Linux'));
     });
 
     test('download progress updates only while downloading', () {
       final downloading = machine.reduce(
         notInstalled,
-        const InstallRequested(),
+        const InstallRequested(distroName: 'Arch Linux'),
       );
       final progressed = machine.reduce(
         downloading,
@@ -41,7 +45,7 @@ void main() {
     test('progress is clamped to 0..1', () {
       final downloading = machine.reduce(
         notInstalled,
-        const InstallRequested(),
+        const InstallRequested(distroName: 'Arch Linux'),
       );
       expect(
         machine.reduce(downloading, const DownloadProgressed(2)).progress,
@@ -54,7 +58,10 @@ void main() {
     });
 
     test('full install path reaches ready', () {
-      var state = machine.reduce(notInstalled, const InstallRequested());
+      var state = machine.reduce(
+        notInstalled,
+        const InstallRequested(distroName: 'Arch Linux'),
+      );
       state = machine.reduce(state, const DownloadFinished());
       expect(state.stage, LocalShellStage.extracting);
       state = machine.reduce(state, const ExtractFinished());
@@ -83,29 +90,13 @@ void main() {
     test('failure carries the error and is installable again', () {
       final downloading = machine.reduce(
         notInstalled,
-        const InstallRequested(),
+        const InstallRequested(distroName: 'Arch Linux'),
       );
       const error = LocalShellError(LocalShellErrorKind.network, 'offline');
       final failed = machine.reduce(downloading, const InstallFailed(error));
       expect(failed.stage, LocalShellStage.failed);
       expect(failed.error, error);
       expect(failed.canInstall, isTrue);
-    });
-
-    test('unsupported device is sticky against environment probes', () {
-      final unsupported = machine.reduce(
-        initial,
-        const DeviceUnsupported('no arm64'),
-      );
-      expect(unsupported.stage, LocalShellStage.unsupported);
-      expect(
-        machine.reduce(unsupported, const EnvironmentMissing()),
-        unsupported,
-      );
-      expect(
-        machine.reduce(unsupported, const EnvironmentReady(version: 'x')),
-        unsupported,
-      );
     });
 
     test('environment probes set ready / not-installed', () {

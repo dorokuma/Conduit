@@ -4,12 +4,6 @@ sealed class LocalShellEvent {
   const LocalShellEvent();
 }
 
-class DeviceUnsupported extends LocalShellEvent {
-  const DeviceUnsupported(this.reason);
-
-  final String reason;
-}
-
 class EnvironmentReady extends LocalShellEvent {
   const EnvironmentReady({required this.version, this.diskUsageBytes});
 
@@ -22,7 +16,9 @@ class EnvironmentMissing extends LocalShellEvent {
 }
 
 class InstallRequested extends LocalShellEvent {
-  const InstallRequested();
+  const InstallRequested({required this.distroName});
+
+  final String distroName;
 }
 
 class DownloadProgressed extends LocalShellEvent {

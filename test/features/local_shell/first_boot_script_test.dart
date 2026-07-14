@@ -4,13 +4,20 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   const generator = FirstBootScript();
   const config = FirstBootConfig(
-    pacmanMirror: r'http://mirror.archlinuxarm.org/$arch/$repo',
-    keyringName: 'archlinuxarm',
+    distroName: 'Debian',
+    updateCommand: 'apt update && apt upgrade',
+    setupCommands: ['echo first-setup-step', 'echo second-setup-step'],
     doneMarkerPath: '/var/lib/.conduit-firstboot-done',
   );
 
   group('FirstBootScript', () {
     final script = generator.generate(config);
+
+    test('is POSIX sh, not bash', () {
+      expect(script, startsWith('#!/bin/sh\n'));
+      expect(script, contains('set -eu\n'));
+      expect(script, isNot(contains('pipefail')));
+    });
 
     test('configures DNS for every nameserver', () {
       expect(script, contains('> /etc/resolv.conf'));
@@ -18,30 +25,21 @@ void main() {
       expect(script, contains('nameserver 8.8.8.8'));
     });
 
-    test('pins the pacman mirror', () {
-      expect(
-        script,
-        contains(
-          r"echo 'Server = http://mirror.archlinuxarm.org/$arch/$repo' > "
-          '/etc/pacman.d/mirrorlist',
-        ),
-      );
+    test('runs the distro setup commands in order', () {
+      final firstIndex = script.indexOf('echo first-setup-step');
+      final secondIndex = script.indexOf('echo second-setup-step');
+      expect(firstIndex, greaterThanOrEqualTo(0));
+      expect(secondIndex, greaterThan(firstIndex));
     });
 
-    test('generates locales', () {
-      expect(script, contains('locale-gen'));
-      expect(script, contains('/etc/locale.gen'));
-    });
-
-    test('seeds entropy then initialises the keyring', () {
-      final entropyIndex = script.indexOf('/dev/urandom');
-      final initIndex = script.indexOf('pacman-key --init');
-      final populateIndex = script.indexOf(
-        'pacman-key --populate archlinuxarm',
+    test('omits the setup section when a distro needs none', () {
+      const bare = FirstBootConfig(
+        distroName: 'Alpine Linux',
+        updateCommand: 'apk update && apk upgrade',
+        setupCommands: [],
+        doneMarkerPath: '/var/lib/.conduit-firstboot-done',
       );
-      expect(entropyIndex, greaterThanOrEqualTo(0));
-      expect(initIndex, greaterThan(entropyIndex));
-      expect(populateIndex, greaterThan(initIndex));
+      expect(generator.generate(bare), isNot(contains('distro setup')));
     });
 
     test('is idempotent via a completion marker', () {
@@ -49,9 +47,10 @@ void main() {
       expect(script, contains('touch "/var/lib/.conduit-firstboot-done"'));
     });
 
-    test('installs a one-time welcome hint pointing at pacman -Syu', () {
+    test('installs a one-time welcome naming the distro and its updater', () {
       expect(script, contains('/etc/profile.d/conduit-welcome.sh'));
-      expect(script, contains('pacman -Syu'));
+      expect(script, contains('Debian - running locally via Conduit.'));
+      expect(script, contains('apt update && apt upgrade'));
     });
   });
 }

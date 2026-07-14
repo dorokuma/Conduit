@@ -22,7 +22,7 @@ enum LocalShellErrorKind {
   lowDisk,
   corruptDownload,
   extractionFailed,
-  keyringFailed,
+  configureFailed,
   unknown,
 }
 

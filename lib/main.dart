@@ -56,7 +56,7 @@ void main() {
     ssh: DartSshTerminalRepository(hostKeyVerifier),
     mosh: MoshTerminalRepository(hostKeyVerifier),
     local: LocalTerminalRepository(
-      resolvePaths: localShellController.requirePaths,
+      resolveLaunch: localShellController.requireLaunch,
     ),
   );
   final workspaceController = TerminalWorkspaceController(

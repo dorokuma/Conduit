@@ -28,7 +28,7 @@ const Map<String, String> _noticeAssets = {
 };
 
 const String _notice = '''
-The on-device local Arch Linux shell includes Android (aarch64) binaries that
+The on-device local Linux shell includes Android (aarch64) binaries that
 Conduit redistributes but did not create. They are built from pinned Termux
 package recipes (https://termux.dev) and are used under their respective
 open-source licenses:
@@ -46,9 +46,10 @@ open-source licenses:
   libandroid-glob ....... BSD-3-Clause
   libpcre2 .............. BSD-3-Clause WITH PCRE2-exception
 
-The Arch Linux ARM root filesystem is distributed via Termux's proot-distro
-(github.com/termux/proot-distro) and maintained by the Arch Linux ARM project
-(archlinuxarm.org).
+The downloadable root filesystems are packaged via Termux's proot-distro
+(github.com/termux/proot-distro) and maintained by their upstream projects:
+Arch Linux ARM (archlinuxarm.org), Debian, Ubuntu, Alpine Linux, Rocky Linux,
+openSUSE, Void Linux, and Manjaro.
 
 Conduit's own source code is Apache-2.0. These bundled components and downloaded
 rootfs packages are not relicensed by Conduit.

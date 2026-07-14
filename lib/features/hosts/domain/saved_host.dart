@@ -152,10 +152,10 @@ class SavedHost {
     this.isLocal = false,
   });
 
-  factory SavedHost.localShell({required String id}) {
+  factory SavedHost.localShell({required String id, required String name}) {
     return SavedHost(
       id: id,
-      name: 'Arch Linux',
+      name: name,
       host: 'localhost',
       port: 0,
       username: 'root',

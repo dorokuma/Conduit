@@ -43,6 +43,28 @@ void main() {
       );
     });
 
+    test('labels the prompt with the distro', () {
+      final labelled = builder.login(
+        rootfsDir: '/data/rootfs',
+        promptLabel: 'alpine',
+      );
+      expect(
+        labelled.arguments.any((argument) => argument.contains('@alpine')),
+        isTrue,
+      );
+    });
+
+    test('runScript uses POSIX sh', () {
+      final script = builder.runScript(
+        rootfsDir: '/data/rootfs',
+        script: 'echo hi',
+      );
+      expect(
+        script.arguments,
+        containsAllInOrder(['/bin/sh', '-lc', 'echo hi']),
+      );
+    });
+
     test('binds shared Android storage into the guest', () {
       const builder = ProotCommandBuilder(
         prootBinary: '/lib/libproot.so',

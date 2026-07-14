@@ -63,6 +63,7 @@ class ProotCommandBuilder {
   ProotCommand login({
     required String rootfsDir,
     List<String> command = const ['/bin/bash', '--login'],
+    String promptLabel = 'linux',
     Map<String, String> extraEnv = const {},
   }) {
     final env = <String>[
@@ -70,7 +71,7 @@ class ProotCommandBuilder {
       'TERM=xterm-256color',
       'LANG=C.UTF-8',
       'PATH=$_path',
-      'PS1=[\\u@archlinux \\W]\\\$ ',
+      'PS1=[\\u@$promptLabel \\W]\\\$ ',
       for (final entry in extraEnv.entries) '${entry.key}=${entry.value}',
     ];
 
@@ -96,7 +97,7 @@ class ProotCommandBuilder {
   }
 
   ProotCommand runScript({required String rootfsDir, required String script}) {
-    return login(rootfsDir: rootfsDir, command: ['/bin/bash', '-lc', script]);
+    return login(rootfsDir: rootfsDir, command: ['/bin/sh', '-lc', script]);
   }
 
   ProotCommand extractTar({

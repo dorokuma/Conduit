@@ -16,9 +16,11 @@ import 'package:conduit/features/hosts/presentation/widgets/host_search_field.da
 import 'package:conduit/features/hosts/presentation/widgets/hosts_hero.dart';
 import 'package:conduit/features/hosts/presentation/widgets/message_state.dart';
 import 'package:conduit/features/hosts/presentation/widgets/tag_filter_bar.dart';
+import 'package:conduit/features/local_shell/domain/local_shell_instance.dart';
 import 'package:conduit/features/local_shell/presentation/local_shell_controller.dart';
-import 'package:conduit/features/local_shell/presentation/local_shell_page.dart';
-import 'package:conduit/features/local_shell/presentation/widgets/local_shell_card.dart';
+import 'package:conduit/features/local_shell/presentation/local_shell_instance_page.dart';
+import 'package:conduit/features/local_shell/presentation/local_shell_setup_page.dart';
+import 'package:conduit/features/local_shell/presentation/widgets/local_shell_section.dart';
 import 'package:conduit/features/sftp/domain/file_export.dart';
 import 'package:conduit/features/sftp/domain/sftp_repository.dart';
 import 'package:conduit/features/sftp/presentation/sftp_browser_page.dart';
@@ -178,14 +180,21 @@ class _HostsPageState extends State<HostsPage> {
                       if (!widget.themeController.showLocalShell) {
                         return const SizedBox.shrink();
                       }
-                      final active = widget.workspaceController.sessions.any(
-                        (session) => session.host.id == localShellHostId,
-                      );
-                      return LocalShellCard(
+                      final activeInstanceIds = widget
+                          .workspaceController
+                          .sessions
+                          .map(
+                            (session) =>
+                                localShellInstanceIdFromHostId(session.host.id),
+                          )
+                          .whereType<String>()
+                          .toSet();
+                      return LocalShellSection(
                         controller: widget.localShellController,
-                        active: active,
-                        onOpenSession: _openLocalSession,
-                        onManage: _openLocalShell,
+                        activeInstanceIds: activeInstanceIds,
+                        onAdd: _openLocalShellSetup,
+                        onOpenInstance: _openLocalSession,
+                        onManageInstance: _openLocalShellInstance,
                       );
                     },
                   ),
@@ -437,19 +446,40 @@ class _HostsPageState extends State<HostsPage> {
     _terminalPageOpen = false;
   }
 
-  Future<void> _openLocalShell() async {
-    await Navigator.of(context).push(
+  Future<void> _openLocalShellSetup() async {
+    final request = await Navigator.of(context).push<LocalShellSetupRequest>(
+      MaterialPageRoute(
+        builder: (_) =>
+            LocalShellSetupPage(controller: widget.localShellController),
+      ),
+    );
+    if (request == null) return;
+    unawaited(
+      widget.localShellController.installNew(
+        request.distroId,
+        name: request.name,
+      ),
+    );
+  }
+
+  void _openLocalShellInstance(LocalShellInstance instance) {
+    Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => LocalShellPage(
+        builder: (_) => LocalShellInstancePage(
           controller: widget.localShellController,
-          onOpenSession: _openLocalSession,
-          onCloseSession: _closeLocalSession,
+          instanceId: instance.id,
+          onOpenSession: (instance) =>
+              _openLocalSession(instance, forceNew: true),
+          onCloseSessions: _closeLocalSession,
         ),
       ),
     );
   }
 
-  Future<void> _openLocalSession() async {
+  Future<void> _openLocalSession(
+    LocalShellInstance instance, {
+    bool forceNew = false,
+  }) async {
     if (widget.localShellController.sharedStorageFeatureEnabled &&
         !widget.localShellController.sharedStorageAccessGranted) {
       await widget.localShellController.requestSharedStorageAccess();
@@ -463,14 +493,31 @@ class _HostsPageState extends State<HostsPage> {
         return;
       }
     }
-    widget.workspaceController.open(widget.localShellController.localHost());
+    final existing = widget.workspaceController.sessions
+        .where(
+          (session) =>
+              localShellInstanceIdFromHostId(session.host.id) == instance.id,
+        )
+        .toList();
+    if (!forceNew && existing.isNotEmpty) {
+      widget.workspaceController.activate(existing.first);
+    } else {
+      widget.workspaceController.open(
+        widget.localShellController.localHost(
+          instance,
+          sessionNumber: existing.length + 1,
+        ),
+      );
+    }
+    unawaited(widget.localShellController.markOpened(instance.id));
     if (!mounted) return;
     await _openTerminalWorkspace();
   }
 
-  Future<void> _closeLocalSession() async {
+  Future<void> _closeLocalSession(String instanceId) async {
     final sessions = widget.workspaceController.sessions.where(
-      (session) => session.host.id == localShellHostId,
+      (session) =>
+          localShellInstanceIdFromHostId(session.host.id) == instanceId,
     );
     for (final session in List.of(sessions)) {
       await widget.workspaceController.close(session);

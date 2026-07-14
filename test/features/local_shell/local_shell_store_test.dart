@@ -21,6 +21,7 @@ void main() {
 
     test('diskUsageBytes skips unreadable rootfs directories', () async {
       final paths = LocalShellPaths(
+        instanceId: 'archlinux',
         nativeLibraryDir: tempDir.path,
         dataDir: tempDir.path,
       );
