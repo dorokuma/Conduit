@@ -22,7 +22,7 @@ dependencies:
   conduit_vt:
     git:
       url: https://github.com/dorokuma/conduit_vt.git
-      ref: 889e70cf60789d08f5f311c155193be05212d6d7
+      ref: c7054fd0dbdccc7cec48a28b589616a4144fd7b4
   dart_mosh: ^0.0.4
   flutter_pty: ^0.4.2
   ffi: ^2.2.0
