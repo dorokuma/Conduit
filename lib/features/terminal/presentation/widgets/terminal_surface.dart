@@ -13,7 +13,7 @@ class TerminalSurface extends StatefulWidget {
     required this.onFontSizeChanged,
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
-    required this.altBufferScrollSimulate,
+    this.altBufferScrollSimulate = true,
     required this.focusNode,
     required this.tmuxScrollMode,
     required this.onExitTmuxScrollMode,
