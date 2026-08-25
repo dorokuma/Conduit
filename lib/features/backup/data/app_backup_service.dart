@@ -143,6 +143,7 @@ class AppBackupService {
       ],
       'showLocalShell': _themeController.showLocalShell,
       'terminalMouseInput': _themeController.terminalMouseInput,
+      'altBufferScrollSimulate': _themeController.altBufferScrollSimulate,
       'terminalEnterSequence': _themeController.terminalEnterSequence.name,
     };
   }
@@ -194,6 +195,12 @@ class AppBackupService {
     final terminalMouseInput = json['terminalMouseInput'];
     if (terminalMouseInput is bool) {
       await _themeController.setTerminalMouseInput(terminalMouseInput);
+    }
+    final altBufferScrollSimulate = json['altBufferScrollSimulate'];
+    if (altBufferScrollSimulate is bool) {
+      await _themeController.setAltBufferScrollSimulate(
+        altBufferScrollSimulate,
+      );
     }
     await _themeController.setTerminalEnterSequence(
       TerminalEnterSequence.values.firstWhere(

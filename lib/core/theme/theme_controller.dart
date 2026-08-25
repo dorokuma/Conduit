@@ -17,6 +17,7 @@ class ThemeController extends ChangeNotifier {
   List<TerminalSnippet> _terminalSnippets = const [];
   bool _showLocalShell = true;
   bool _terminalMouseInput = false;
+  bool _altBufferScrollSimulate = true;
   TerminalEnterSequence _terminalEnterSequence = TerminalEnterSequence.cr;
 
   ThemeMode get themeMode => _themeMode;
@@ -29,6 +30,7 @@ class ThemeController extends ChangeNotifier {
       List.unmodifiable(_terminalSnippets);
   bool get showLocalShell => _showLocalShell;
   bool get terminalMouseInput => _terminalMouseInput;
+  bool get altBufferScrollSimulate => _altBufferScrollSimulate;
   TerminalEnterSequence get terminalEnterSequence => _terminalEnterSequence;
 
   Future<void> load() async {
@@ -41,6 +43,7 @@ class ThemeController extends ChangeNotifier {
     _terminalSnippets = List.of(preferences.terminalSnippets);
     _showLocalShell = preferences.showLocalShell;
     _terminalMouseInput = preferences.terminalMouseInput;
+    _altBufferScrollSimulate = preferences.altBufferScrollSimulate;
     _terminalEnterSequence = preferences.terminalEnterSequence;
     notifyListeners();
   }
@@ -155,6 +158,15 @@ class ThemeController extends ChangeNotifier {
     await _save();
   }
 
+  Future<void> setAltBufferScrollSimulate(bool enabled) async {
+    if (_altBufferScrollSimulate == enabled) {
+      return;
+    }
+    _altBufferScrollSimulate = enabled;
+    notifyListeners();
+    await _save();
+  }
+
   Future<void> setTerminalEnterSequence(TerminalEnterSequence sequence) async {
     if (_terminalEnterSequence == sequence) {
       return;
@@ -175,6 +187,7 @@ class ThemeController extends ChangeNotifier {
         terminalSnippets: _terminalSnippets,
         showLocalShell: _showLocalShell,
         terminalMouseInput: _terminalMouseInput,
+        altBufferScrollSimulate: _altBufferScrollSimulate,
         terminalEnterSequence: _terminalEnterSequence,
       ),
     );

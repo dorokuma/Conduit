@@ -13,6 +13,7 @@ class TerminalSurface extends StatefulWidget {
     required this.onFontSizeChanged,
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
+    required this.altBufferScrollSimulate,
     required this.focusNode,
     required this.tmuxScrollMode,
     required this.onExitTmuxScrollMode,
@@ -27,6 +28,7 @@ class TerminalSurface extends StatefulWidget {
   final ValueChanged<double> onFontSizeChanged;
   final bool predictiveEchoEnabled;
   final bool terminalMouseInput;
+  final bool altBufferScrollSimulate;
   final FocusNode? focusNode;
   final bool tmuxScrollMode;
   final VoidCallback onExitTmuxScrollMode;
@@ -187,6 +189,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
                       : TerminalCursorType.verticalBar,
                   alwaysShowCursor: true,
                   simulateScroll: !widget.tmuxScrollMode,
+                  altBufferScrollSimulate: widget.altBufferScrollSimulate,
                 );
               },
             ),
