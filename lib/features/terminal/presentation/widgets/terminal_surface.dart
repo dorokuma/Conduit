@@ -43,10 +43,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   late final TerminalController _scrollTerminalController;
   double _scrollOffset = 0;
   bool _isScrolling = false;
-  Offset? _lastMovePosition;
-  Offset? _dragStart;
-  bool _dragThresholdMet = false;
-  static const double _dragThreshold = 12.0;
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
@@ -99,16 +95,9 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
 
   void _handlePointerDown(PointerDownEvent event) {
     _pinchPointers[event.pointer] = event.localPosition;
-    if (_pinchPointers.length == 1) {
-      _dragStart = event.localPosition;
-      _lastMovePosition = event.localPosition;
-      _dragThresholdMet = false;
-    }
     if (_pinchPointers.length == 2) {
       _pinchStartDistance = _pinchDistance;
       _pinchStartFontSize = widget.fontSize;
-      _dragStart = null;
-      _dragThresholdMet = false;
     }
   }
 
@@ -117,45 +106,13 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     _pinchPointers[event.pointer] = event.localPosition;
 
     // 双指缩放
-    if (_pinchPointers.length == 2) {
-      final startDistance = _pinchStartDistance;
-      final startFontSize = _pinchStartFontSize;
-      if (startDistance == null || startDistance == 0 || startFontSize == null) {
-        return;
-      }
-      widget.onFontSizeChanged(startFontSize * (_pinchDistance / startDistance));
+    if (_pinchPointers.length != 2) return;
+    final startDistance = _pinchStartDistance;
+    final startFontSize = _pinchStartFontSize;
+    if (startDistance == null || startDistance == 0 || startFontSize == null) {
       return;
     }
-
-    // 单指拖拽滚动
-    if (_pinchPointers.length == 1 && _lastMovePosition != null) {
-      final start = _dragStart;
-      if (start == null) return;
-
-      // 阈值判断
-      if (!_dragThresholdMet) {
-        final totalDist = (event.localPosition - start).dy.abs();
-        if (totalDist < _dragThreshold) return;
-        _dragThresholdMet = true;
-      }
-
-      final dy = event.localPosition.dy - _lastMovePosition!.dy;
-      _lastMovePosition = event.localPosition;
-
-      // dy > 0 = 向下滑 = 看更新的历史（offset 减小）
-      // dy < 0 = 向上滑 = 看更旧的历史（offset 增大）
-      final bytesPerLine = widget.session.terminal.viewWidth * 8.0;
-      final scrollBytes = (-dy * bytesPerLine / _lineHeightPixels).round();
-
-      _scrollOffset = (_scrollOffset + scrollBytes).clamp(0, _maxScrollOffset);
-      _scrollReturnTimer?.cancel();
-      _scrollReturnTimer = Timer(const Duration(milliseconds: 1500), _returnToLive);
-
-      if (!_isScrolling) {
-        setState(() => _isScrolling = true);
-      }
-      _rebuildScrollTerminal();
-    }
+    widget.onFontSizeChanged(startFontSize * (_pinchDistance / startDistance));
   }
 
   void _handlePointerEnd(PointerEvent event) {
@@ -163,12 +120,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     if (_pinchPointers.length < 2) {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
-    }
-    if (_pinchPointers.isEmpty) {
-      _dragStart = null;
-      _lastMovePosition = null;
-      _dragThresholdMet = false;
-      // 松手后不立即回实时，等 timer
     }
   }
 
@@ -179,8 +130,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
 
   // ── 滚动辅助 ──
 
-  double get _lineHeightPixels => widget.fontSize * 1.2;
-
   double get _maxScrollOffset =>
       (widget.session.outputCache.length - _visibleHistoryBytes)
           .clamp(0, double.infinity)
@@ -190,6 +139,23 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
       widget.session.terminal.viewWidth *
       widget.session.terminal.viewHeight *
       8;
+
+  /// 备用屏触摸滚动回调，由 conduit_vt 的 [TerminalView.onTouchScroll] 转发
+  /// 行数增量来驱动缓存历史 overlay。lines 为负 = 看更旧历史（滚动偏移增大），
+  /// lines 为正 = 回到新内容（滚动偏移减小）。
+  void _onTerminalTouchScroll(int lines) {
+    final bytesPerLine = widget.session.terminal.viewWidth * 8.0;
+    final scrollBytes =
+        (-lines * bytesPerLine).clamp(-_maxScrollOffset, _maxScrollOffset);
+    _scrollOffset = (_scrollOffset + scrollBytes).clamp(0, _maxScrollOffset);
+    _scrollReturnTimer?.cancel();
+    _scrollReturnTimer =
+        Timer(const Duration(milliseconds: 1500), _returnToLive);
+    if (!_isScrolling) {
+      setState(() => _isScrolling = true);
+    }
+    _rebuildScrollTerminal();
+  }
 
   void _returnToLive() {
     if (!mounted) return;
@@ -281,6 +247,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
                         : TerminalCursorType.verticalBar,
                     alwaysShowCursor: true,
                     simulateScroll: !isHerdr,
+                    onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
                   );
                 },
               ),
