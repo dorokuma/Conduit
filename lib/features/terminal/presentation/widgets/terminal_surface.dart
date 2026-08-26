@@ -34,20 +34,19 @@ class TerminalSurface extends StatefulWidget {
 }
 
 class _TerminalSurfaceState extends State<TerminalSurface> {
-  // 双指缩放
   final _pinchPointers = <int, Offset>{};
   double? _pinchStartDistance;
   double? _pinchStartFontSize;
-
-  // 滚动
   Timer? _scrollReturnTimer;
   Terminal? _scrollTerminal;
   late final TerminalController _terminalController;
   late final TerminalController _scrollTerminalController;
   double _scrollOffset = 0;
   bool _isScrolling = false;
-  // 跟踪 TerminalView 内部 Scrollable 的位置变化
-  double _lastScrollPosition = 0;
+  Offset? _lastMovePosition;
+  Offset? _dragStart;
+  bool _dragThresholdMet = false;
+  static const double _dragThreshold = 12.0;
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
@@ -96,26 +95,67 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     await widget.session.connect();
   }
 
-  // ── 双指缩放 ──
+  // ── Pointer 事件（Listener 不参与手势竞技场，总能收到）──
 
   void _handlePointerDown(PointerDownEvent event) {
     _pinchPointers[event.pointer] = event.localPosition;
+    if (_pinchPointers.length == 1) {
+      _dragStart = event.localPosition;
+      _lastMovePosition = event.localPosition;
+      _dragThresholdMet = false;
+    }
     if (_pinchPointers.length == 2) {
       _pinchStartDistance = _pinchDistance;
       _pinchStartFontSize = widget.fontSize;
+      _dragStart = null;
+      _dragThresholdMet = false;
     }
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
     if (!_pinchPointers.containsKey(event.pointer)) return;
     _pinchPointers[event.pointer] = event.localPosition;
-    if (_pinchPointers.length != 2) return;
-    final startDistance = _pinchStartDistance;
-    final startFontSize = _pinchStartFontSize;
-    if (startDistance == null || startDistance == 0 || startFontSize == null) {
+
+    // 双指缩放
+    if (_pinchPointers.length == 2) {
+      final startDistance = _pinchStartDistance;
+      final startFontSize = _pinchStartFontSize;
+      if (startDistance == null || startDistance == 0 || startFontSize == null) {
+        return;
+      }
+      widget.onFontSizeChanged(startFontSize * (_pinchDistance / startDistance));
       return;
     }
-    widget.onFontSizeChanged(startFontSize * (_pinchDistance / startDistance));
+
+    // 单指拖拽滚动
+    if (_pinchPointers.length == 1 && _lastMovePosition != null) {
+      final start = _dragStart;
+      if (start == null) return;
+
+      // 阈值判断
+      if (!_dragThresholdMet) {
+        final totalDist = (event.localPosition - start).dy.abs();
+        if (totalDist < _dragThreshold) return;
+        _dragThresholdMet = true;
+      }
+
+      final dy = event.localPosition.dy - _lastMovePosition!.dy;
+      _lastMovePosition = event.localPosition;
+
+      // dy > 0 = 向下滑 = 看更新的历史（offset 减小）
+      // dy < 0 = 向上滑 = 看更旧的历史（offset 增大）
+      final bytesPerLine = widget.session.terminal.viewWidth * 8.0;
+      final scrollBytes = (-dy * bytesPerLine / _lineHeightPixels).round();
+
+      _scrollOffset = (_scrollOffset + scrollBytes).clamp(0, _maxScrollOffset);
+      _scrollReturnTimer?.cancel();
+      _scrollReturnTimer = Timer(const Duration(milliseconds: 1500), _returnToLive);
+
+      if (!_isScrolling) {
+        setState(() => _isScrolling = true);
+      }
+      _rebuildScrollTerminal();
+    }
   }
 
   void _handlePointerEnd(PointerEvent event) {
@@ -124,6 +164,12 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
     }
+    if (_pinchPointers.isEmpty) {
+      _dragStart = null;
+      _lastMovePosition = null;
+      _dragThresholdMet = false;
+      // 松手后不立即回实时，等 timer
+    }
   }
 
   double get _pinchDistance {
@@ -131,40 +177,9 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     return points.length < 2 ? 0 : (points[0] - points[1]).distance;
   }
 
-  // ── 滚动：监听 TerminalView 内部 Scrollable 的 ScrollNotification ──
-
-  // TerminalView 在备用屏下用 InfiniteScrollView，它是一个 Scrollable。
-  // Scrollable 滚动时发 ScrollUpdateNotification，我们拦截它来做缓存滚动，
-  // 不竞争手势，不阻止 TerminalView 的 tap/键盘/选择。
-  bool _onScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification) {
-      final metrics = notification.metrics;
-      final currentPos = metrics.pixels;
-
-      // 在备用屏下 InfiniteScrollView 的 pixels 可正可负（无限滚动）
-      // 正数 = 向下滚（看更旧的历史），负数 = 向上滚
-      final delta = currentPos - _lastScrollPosition;
-      _lastScrollPosition = currentPos;
-
-      if (delta.abs() < 1) return false;
-
-      // delta > 0 = 手指向下滑 = 看更新的历史（offset 减小）
-      // delta < 0 = 手指向上滑 = 看更旧的历史（offset 增大）
-      final scrollBytes = (-delta * _bytesPerLine).round();
-      _scrollOffset = (_scrollOffset + scrollBytes).clamp(0, _maxScrollOffset);
-
-      _scrollReturnTimer?.cancel();
-      _scrollReturnTimer = Timer(const Duration(milliseconds: 1500), _returnToLive);
-
-      if (!_isScrolling && _scrollOffset > 0) {
-        _isScrolling = true;
-      }
-      _rebuildScrollTerminal();
-    }
-    return false; // 不阻止通知继续传播
-  }
-
   // ── 滚动辅助 ──
+
+  double get _lineHeightPixels => widget.fontSize * 1.2;
 
   double get _maxScrollOffset =>
       (widget.session.outputCache.length - _visibleHistoryBytes)
@@ -175,8 +190,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
       widget.session.terminal.viewWidth *
       widget.session.terminal.viewHeight *
       8;
-
-  double get _bytesPerLine => widget.session.terminal.viewWidth * 8.0;
 
   void _returnToLive() {
     if (!mounted) return;
@@ -205,14 +218,12 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
       return;
     }
 
-    // 多读更多余量来找完整 ANSI 边界——4096 字节，覆盖大多数 SGR 颜色序列
+    // 多读 4096 字节余量找完整 ANSI 边界
     final readLen = (_visibleHistoryBytes + 4096).clamp(0, end);
     final start = (end - readLen).clamp(0, end);
     final bytes = widget.session.outputCache.readRange(start, end - start);
 
-    // 从头部扫描找最近的 ANSI 序列边界
-    // 优先找 \x1b[ (CSI 起始)，其次找 \n (换行)
-    // 扫描范围扩大到 4096
+    // 找最近的 ANSI 序列边界
     int actualStart = 0;
     for (int i = 0; i < bytes.length && i < 4096; i++) {
       if (bytes[i] == 0x1b && i + 1 < bytes.length && bytes[i + 1] == 0x5b) {
@@ -241,60 +252,55 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
         onPointerMove: _handlePointerMove,
         onPointerUp: _handlePointerEnd,
         onPointerCancel: _handlePointerEnd,
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: Stack(
-            children: [
-              // 底层：TerminalView，正常处理所有手势（tap/键盘/选择）
-              // 滚动 overlay 显示时用 AbsorbPointer 阻止误触
-              AbsorbPointer(
-                absorbing: _scrollTerminal != null,
-                child: ListenableBuilder(
-                  listenable: widget.session.terminalPaintListenable,
-                  builder: (context, _) {
-                    final overlays = widget.session.overlays;
-                    return TerminalView(
-                      widget.session.terminal,
-                      controller: _terminalController,
-                      focusNode: widget.focusNode,
-                      autofocus: widget.focusNode != null,
-                      deleteDetection: true,
-                      keyboardType: TextInputType.visiblePassword,
-                      theme: widget.palette.terminalThemeFor(widget.brightness),
-                      overlays: overlays,
-                      textStyle: TerminalStyle(
-                        fontFamily: widget.fontFamily,
-                        fontSize: widget.fontSize,
-                      ),
-                      padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                      cursorType: overlays.isEmpty
-                          ? TerminalCursorType.block
-                          : TerminalCursorType.verticalBar,
-                      alwaysShowCursor: true,
-                      // herdr 会话中关掉 simulateScroll，
-                      // 让 InfiniteScrollView 滚动时不发方向键
-                      simulateScroll: !isHerdr,
-                    );
-                  },
-                ),
-              ),
-              // 历史画面 overlay（IgnorePointer 让手势穿透到下面的 TerminalView）
-              if (_scrollTerminal != null)
-                IgnorePointer(
-                  child: TerminalView(
-                    _scrollTerminal!,
-                    controller: _scrollTerminalController,
+        child: Stack(
+          children: [
+            // TerminalView 正常处理所有手势（tap/键盘/选择/Scrollable）
+            // 滚动 overlay 期间用 AbsorbPointer 阻止误触
+            AbsorbPointer(
+              absorbing: _scrollTerminal != null,
+              child: ListenableBuilder(
+                listenable: widget.session.terminalPaintListenable,
+                builder: (context, _) {
+                  final overlays = widget.session.overlays;
+                  return TerminalView(
+                    widget.session.terminal,
+                    controller: _terminalController,
+                    focusNode: widget.focusNode,
+                    autofocus: widget.focusNode != null,
+                    deleteDetection: true,
+                    keyboardType: TextInputType.visiblePassword,
                     theme: widget.palette.terminalThemeFor(widget.brightness),
+                    overlays: overlays,
                     textStyle: TerminalStyle(
                       fontFamily: widget.fontFamily,
                       fontSize: widget.fontSize,
                     ),
                     padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                    simulateScroll: false,
+                    cursorType: overlays.isEmpty
+                        ? TerminalCursorType.block
+                        : TerminalCursorType.verticalBar,
+                    alwaysShowCursor: true,
+                    simulateScroll: !isHerdr,
+                  );
+                },
+              ),
+            ),
+            // 历史画面 overlay
+            if (_scrollTerminal != null)
+              IgnorePointer(
+                child: TerminalView(
+                  _scrollTerminal!,
+                  controller: _scrollTerminalController,
+                  theme: widget.palette.terminalThemeFor(widget.brightness),
+                  textStyle: TerminalStyle(
+                    fontFamily: widget.fontFamily,
+                    fontSize: widget.fontSize,
                   ),
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
+                  simulateScroll: false,
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
