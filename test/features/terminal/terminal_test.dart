@@ -17,7 +17,6 @@ import 'package:conduit/features/terminal/presentation/host_key_prompt_coordinat
 import 'package:conduit/features/terminal/presentation/terminal_keyboard_bar.dart';
 import 'package:conduit/features/terminal/presentation/terminal_keyboard_controller.dart';
 import 'package:conduit/features/terminal/presentation/terminal_session_controller.dart';
-import 'package:conduit/features/terminal/presentation/widgets/terminal_surface.dart';
 import 'package:conduit_vt/conduit_vt.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:dartssh2/dartssh2.dart';
@@ -343,10 +342,7 @@ void main() {
               globalSnippets: const [],
               fullscreen: false,
               onToggleFullscreen: () {},
-              onEnterHerdrScrollMode: () {},
-              onExitHerdrScrollMode: () {},
               herdrPrefixKey: HerdrPrefixKey.controlB,
-              herdrScrollMode: false,
             ),
           ),
         ),
@@ -375,82 +371,6 @@ void main() {
         TerminalKey.arrowDown,
         TerminalKey.arrowDown,
       ]);
-    });
-
-    testWidgets('does not send a keyboard row key while scrolling', (
-      tester,
-    ) async {
-      final controller = _RecordingTerminalSessionController();
-      final focusNode = FocusNode();
-      addTearDown(focusNode.dispose);
-      addTearDown(controller.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TerminalKeyboardBar(
-              controller: controller,
-              focusNode: focusNode,
-              palette: AppPalette.catppuccin,
-              brightness: Brightness.dark,
-              rows: const [
-                TerminalKeyboardRow(
-                  items: [
-                    TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.control,
-                    ),
-                    TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.controlC,
-                    ),
-                    TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.controlD,
-                    ),
-                    TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.herdrPrefix,
-                    ),
-                    TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.herdrMenu,
-                    ),
-                    TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.pageDown,
-                    ),
-                    TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.arrowRight,
-                    ),
-                  ],
-                ),
-              ],
-              globalSnippets: const [],
-              fullscreen: false,
-              onToggleFullscreen: () {},
-              onEnterHerdrScrollMode: () {},
-              onExitHerdrScrollMode: () {},
-              herdrPrefixKey: HerdrPrefixKey.controlB,
-              herdrScrollMode: false,
-            ),
-          ),
-        ),
-      );
-
-      final gesture = await tester.startGesture(
-        tester.getCenter(find.text('^C')),
-      );
-      await gesture.moveBy(const Offset(-60, 0));
-      await tester.pump();
-      await gesture.up();
-
-      expect(controller.sentControlKeys, isEmpty);
-      expect(controller.sentKeys, isEmpty);
-      expect(controller.sentText, isEmpty);
-
-      final toggleGesture = await tester.startGesture(
-        tester.getCenter(find.text('Ctrl')),
-      );
-      await toggleGesture.moveBy(const Offset(-60, 0));
-      await tester.pump();
-      await toggleGesture.up();
-
-      expect(controller.keyboard.ctrl, isFalse);
     });
 
     testWidgets('sizes keyboard row toggles to fit longer labels', (
@@ -485,10 +405,7 @@ void main() {
               fullscreen: false,
               onToggleFullscreen: () {},
               onToggleCompose: () {},
-              onEnterHerdrScrollMode: () {},
-              onExitHerdrScrollMode: () {},
               herdrPrefixKey: HerdrPrefixKey.controlB,
-              herdrScrollMode: false,
             ),
           ),
         ),
@@ -546,10 +463,7 @@ void main() {
               globalSnippets: const [],
               fullscreen: false,
               onToggleFullscreen: () {},
-              onEnterHerdrScrollMode: () {},
-              onExitHerdrScrollMode: () {},
               herdrPrefixKey: HerdrPrefixKey.controlB,
-              herdrScrollMode: false,
             ),
           ),
         ),
@@ -608,10 +522,7 @@ void main() {
               ],
               fullscreen: false,
               onToggleFullscreen: () {},
-              onEnterHerdrScrollMode: () {},
-              onExitHerdrScrollMode: () {},
               herdrPrefixKey: HerdrPrefixKey.controlB,
-              herdrScrollMode: false,
             ),
           ),
         ),
@@ -635,97 +546,6 @@ void main() {
         'ls -la',
         'secret-password',
       ]);
-    });
-
-    testWidgets('herdr scroll key enters scrollback mode', (tester) async {
-      final controller = _RecordingTerminalSessionController();
-      final focusNode = FocusNode();
-      var enteredScrollMode = false;
-      var exitedScrollMode = false;
-      addTearDown(focusNode.dispose);
-      addTearDown(controller.dispose);
-
-      Widget buildBar({required bool herdrScrollMode}) => MaterialApp(
-        home: Scaffold(
-          body: TerminalKeyboardBar(
-            controller: controller,
-            focusNode: focusNode,
-            palette: AppPalette.catppuccin,
-            brightness: Brightness.dark,
-            rows: const [
-              TerminalKeyboardRow(
-                items: [
-                  TerminalKeyboardItem.builtIn(
-                    TerminalKeyboardAction.herdrScrollback,
-                  ),
-                ],
-              ),
-            ],
-            globalSnippets: const [],
-            fullscreen: false,
-            onToggleFullscreen: () {},
-            onEnterHerdrScrollMode: () => enteredScrollMode = true,
-            onExitHerdrScrollMode: () => exitedScrollMode = true,
-            herdrPrefixKey: HerdrPrefixKey.controlB,
-            herdrScrollMode: herdrScrollMode,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(buildBar(herdrScrollMode: false));
-      await tester.tap(find.text('Scroll'));
-
-      expect(controller.sentControlKeys, [TerminalKey.keyB]);
-      expect(controller.sentText, ['[']);
-      expect(enteredScrollMode, isTrue);
-
-      await tester.pumpWidget(buildBar(herdrScrollMode: true));
-      await tester.tap(find.text('Scroll'));
-
-      expect(controller.sentText, ['[', 'q']);
-      expect(exitedScrollMode, isTrue);
-    });
-
-    testWidgets('herdr scroll mode drags without visible overlay', (
-      tester,
-    ) async {
-      final controller = _RecordingTerminalSessionController();
-      final focusNode = FocusNode();
-      addTearDown(focusNode.dispose);
-      addTearDown(controller.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TerminalSurface(
-              session: controller,
-              palette: AppPalette.catppuccin,
-              brightness: Brightness.dark,
-              fontFamily: 'monospace',
-              fontSize: 14,
-              onFontSizeChanged: (_) {},
-              predictiveEchoEnabled: false,
-              terminalMouseInput: false,
-              focusNode: focusNode,
-              herdrScrollMode: true,
-              onExitHerdrScrollMode: () {},
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('herdr scroll'), findsNothing);
-      expect(find.text('Exit'), findsNothing);
-
-      await tester.drag(find.byType(TerminalSurface), const Offset(0, 84));
-      await tester.pump();
-
-      expect(controller.sentKeys, isNotEmpty);
-      expect(controller.sentKeys, everyElement(TerminalKey.arrowUp));
-      expect(controller.sentKeys, isNot(contains(TerminalKey.pageUp)));
-      expect(controller.sentKeys, isNot(contains(TerminalKey.pageDown)));
-
-      await tester.pump(const Duration(milliseconds: 250));
     });
 
     test('keyboard input clears toggled row modifiers after one key', () {

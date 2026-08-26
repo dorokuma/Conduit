@@ -23,10 +23,7 @@ class TerminalKeyboardBar extends StatelessWidget {
     required this.onToggleFullscreen,
     this.composeActive = false,
     this.onToggleCompose,
-    required this.onEnterHerdrScrollMode,
-    required this.onExitHerdrScrollMode,
     required this.herdrPrefixKey,
-    required this.herdrScrollMode,
     super.key,
   });
 
@@ -40,10 +37,7 @@ class TerminalKeyboardBar extends StatelessWidget {
   final VoidCallback onToggleFullscreen;
   final bool composeActive;
   final VoidCallback? onToggleCompose;
-  final VoidCallback onEnterHerdrScrollMode;
-  final VoidCallback onExitHerdrScrollMode;
   final HerdrPrefixKey herdrPrefixKey;
-  final bool herdrScrollMode;
 
   @override
   Widget build(BuildContext context) {
@@ -197,13 +191,6 @@ class TerminalKeyboardBar extends StatelessWidget {
         brightness: brightness,
         onPressed: _sendHerdrPrefix,
       ),
-      TerminalKeyboardAction.herdrScrollback => _Key(
-        label: action.label,
-        palette: palette,
-        brightness: brightness,
-        selected: herdrScrollMode,
-        onPressed: _toggleHerdrScrollMode,
-      ),
       TerminalKeyboardAction.herdrMenu => _MenuKey<_HerdrAction>(
         label: 'Herdr+',
         tooltip: 'Herdr actions',
@@ -282,7 +269,6 @@ class TerminalKeyboardBar extends StatelessWidget {
       case TerminalKeyboardAction.paste:
       case TerminalKeyboardAction.functionKeys:
       case TerminalKeyboardAction.herdrPrefix:
-      case TerminalKeyboardAction.herdrScrollback:
       case TerminalKeyboardAction.herdrMenu:
       case TerminalKeyboardAction.snippets:
       case TerminalKeyboardAction.compose:
@@ -367,21 +353,7 @@ class TerminalKeyboardBar extends StatelessWidget {
     } else if (action.text != null) {
       controller.sendText(action.text!);
     }
-    if (action.entersScrollMode) {
-      onEnterHerdrScrollMode();
-    }
     _focusTerminal();
-  }
-
-  void _toggleHerdrScrollMode() {
-    if (herdrScrollMode) {
-      _sendHerdrPrefix();
-      _sendText('q');
-      onExitHerdrScrollMode();
-      _focusTerminal();
-      return;
-    }
-    _triggerHerdrAction(_HerdrAction.copyMode);
   }
 
   void _triggerCustomItem(TerminalKeyboardItem item) {
@@ -517,17 +489,15 @@ enum _HerdrAction {
   paneDown('Pane down', Icons.keyboard_arrow_down_rounded, key: TerminalKey.arrowDown),
   zoomPane('Zoom pane', Icons.zoom_out_map_rounded, text: 'z'),
   editScrollback('Edit scrollback', Icons.edit_note_rounded, text: 'e'),
-  copyMode('Scrollback', Icons.swap_vert_rounded, text: '[', entersScrollMode: true),
   closePane('Close pane', Icons.close_fullscreen_rounded, text: 'x'),
   detach('Detach', Icons.logout_rounded, text: 'q');
 
-  const _HerdrAction(this.label, this.icon, {this.text, this.key, this.entersScrollMode = false});
+  const _HerdrAction(this.label, this.icon, {this.text, this.key});
 
   final String label;
   final IconData icon;
   final String? text;
   final TerminalKey? key;
-  final bool entersScrollMode;
 }
 
 const _functionKeys = [
@@ -598,7 +568,6 @@ class _Key extends StatelessWidget {
     this.label,
     this.icon,
     this.repeat = false,
-    this.selected = false,
   });
 
   final AppPalette palette;
@@ -607,23 +576,15 @@ class _Key extends StatelessWidget {
   final IconData? icon;
   final VoidCallback? onPressed;
   final bool repeat;
-  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final isIconKey = icon != null;
     final enabled = onPressed != null;
     final foreground = enabled
-        ? selected
-              ? palette.accent
-              : palette.foregroundFor(brightness)
+        ? palette.foregroundFor(brightness)
         : palette.mutedForegroundFor(brightness);
-    final background = selected
-        ? Color.alphaBlend(
-            palette.accent.withValues(alpha: 0.22),
-            palette.panelFor(brightness),
-          )
-        : palette.panelFor(brightness);
+    final background = palette.panelFor(brightness);
     return _KeySurface(
       color: background,
       onPressed: onPressed,
@@ -640,12 +601,9 @@ class _Key extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: selected
-                ? palette.accent.withValues(alpha: 0.7)
-                : enabled
+            color: enabled
                 ? palette.hairlineFor(brightness)
                 : palette.hairlineFor(brightness).withValues(alpha: 0.55),
-            width: selected ? 1.3 : 1,
           ),
         ),
         child: icon == null

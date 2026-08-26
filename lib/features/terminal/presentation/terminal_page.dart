@@ -38,7 +38,6 @@ class _TerminalPageState extends State<TerminalPage> {
   final _focusNode = FocusNode();
   TerminalSessionController? _focusedSession;
   bool _fullscreen = false;
-  bool _herdrScrollMode = false;
   bool _composeMode = false;
   // Compose recall: recently SENT lines (deduped, oldest first, capped) so a
   // line sent into a mode that discarded it can be recalled; plus the current
@@ -95,9 +94,6 @@ class _TerminalPageState extends State<TerminalPage> {
     final active = widget.workspace.activeSession;
     if (active == null || active == _focusedSession) return;
     _focusedSession = active;
-    if (_herdrScrollMode) {
-      setState(() => _herdrScrollMode = false);
-    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
@@ -198,19 +194,10 @@ class _TerminalPageState extends State<TerminalPage> {
                                 predictiveEchoEnabled:
                                     session.host.predictiveEchoEnabled,
                                 terminalMouseInput:
-                                    widget.themeController.terminalMouseInput,
-                                altBufferScrollSimulate: widget
-                                    .themeController
-                                    .altBufferScrollSimulate,
+                                    session.host.startHerdrOnConnect,
                                 focusNode: session == activeSession
                                     ? _focusNode
                                     : null,
-                                herdrScrollMode:
-                                    session == activeSession && _herdrScrollMode,
-                                onExitHerdrScrollMode: () {
-                                  setState(() => _herdrScrollMode = false);
-                                  _focusNode.requestFocus();
-                                },
                               ),
                           ],
                         ),
@@ -269,15 +256,6 @@ class _TerminalPageState extends State<TerminalPage> {
                         onToggleCompose: () =>
                             setState(() => _composeMode = !_composeMode),
                         herdrPrefixKey: activeSession.host.herdrPrefixKey,
-                        herdrScrollMode: _herdrScrollMode,
-                        onEnterHerdrScrollMode: () {
-                          setState(() => _herdrScrollMode = true);
-                          _focusNode.requestFocus();
-                        },
-                        onExitHerdrScrollMode: () {
-                          setState(() => _herdrScrollMode = false);
-                          _focusNode.requestFocus();
-                        },
                       ),
                   ],
                 ),

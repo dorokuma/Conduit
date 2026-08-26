@@ -380,48 +380,6 @@ class _TerminalAppearanceControls extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        Material(
-          color: colorScheme.surface,
-          shape: RoundedRectangleBorder(
-            side: BorderSide(color: colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.mouse_rounded),
-            title: const Text('Send mouse taps'),
-            subtitle: Text(
-              'Forward terminal taps as mouse clicks when apps enable mouse tracking.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-            value: controller.terminalMouseInput,
-            onChanged: controller.setTerminalMouseInput,
-          ),
-        ),
-        const SizedBox(height: 14),
-        Material(
-          color: colorScheme.surface,
-          shape: RoundedRectangleBorder(
-            side: BorderSide(color: colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.swap_vert_rounded),
-            title: const Text('Arrow-key alternate scroll'),
-            subtitle: Text(
-              'Use arrow keys for touch scrolling when terminal mouse tracking is enabled.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-            value: controller.altBufferScrollSimulate,
-            onChanged: controller.setAltBufferScrollSimulate,
-          ),
-        ),
-        const SizedBox(height: 14),
         Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
@@ -1095,7 +1053,6 @@ IconData _keyboardActionIcon(TerminalKeyboardAction action) {
     TerminalKeyboardAction.paste => Icons.content_paste_rounded,
     TerminalKeyboardAction.functionKeys => Icons.keyboard_rounded,
     TerminalKeyboardAction.herdrPrefix => Icons.keyboard_command_key_rounded,
-    TerminalKeyboardAction.herdrScrollback => Icons.swap_vert_rounded,
     TerminalKeyboardAction.herdrMenu => Icons.view_quilt_rounded,
     TerminalKeyboardAction.snippets => Icons.snippet_folder_rounded,
     TerminalKeyboardAction.compose => Icons.edit_note_rounded,

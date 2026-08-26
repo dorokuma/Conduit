@@ -13,10 +13,7 @@ class TerminalSurface extends StatefulWidget {
     required this.onFontSizeChanged,
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
-    this.altBufferScrollSimulate = true,
     required this.focusNode,
-    required this.herdrScrollMode,
-    required this.onExitHerdrScrollMode,
     super.key,
   });
 
@@ -28,10 +25,7 @@ class TerminalSurface extends StatefulWidget {
   final ValueChanged<double> onFontSizeChanged;
   final bool predictiveEchoEnabled;
   final bool terminalMouseInput;
-  final bool altBufferScrollSimulate;
   final FocusNode? focusNode;
-  final bool herdrScrollMode;
-  final VoidCallback onExitHerdrScrollMode;
 
   @override
   State<TerminalSurface> createState() => _TerminalSurfaceState();
@@ -41,7 +35,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   final _pinchPointers = <int, Offset>{};
   double? _pinchStartDistance;
   double? _pinchStartFontSize;
-  double _herdrScrollDelta = 0;
   late final TerminalController _terminalController;
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
@@ -89,9 +82,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
-    if (widget.herdrScrollMode) {
-      return;
-    }
     _pinchPointers[event.pointer] = event.localPosition;
     if (_pinchPointers.length == 2) {
       _pinchStartDistance = _pinchDistance;
@@ -100,9 +90,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
-    if (widget.herdrScrollMode) {
-      return;
-    }
     if (!_pinchPointers.containsKey(event.pointer)) {
       return;
     }
@@ -119,32 +106,11 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   void _handlePointerEnd(PointerEvent event) {
-    if (widget.herdrScrollMode) {
-      return;
-    }
     _pinchPointers.remove(event.pointer);
     if (_pinchPointers.length < 2) {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
     }
-  }
-
-  void _handleHerdrScrollDrag(DragUpdateDetails details) {
-    _herdrScrollDelta += details.primaryDelta ?? 0;
-    const step = 12.0;
-    while (_herdrScrollDelta.abs() >= step) {
-      if (_herdrScrollDelta > 0) {
-        widget.session.sendKey(TerminalKey.arrowUp);
-        _herdrScrollDelta -= step;
-      } else {
-        widget.session.sendKey(TerminalKey.arrowDown);
-        _herdrScrollDelta += step;
-      }
-    }
-  }
-
-  void _handleHerdrScrollEnd(DragEndDetails details) {
-    _herdrScrollDelta = 0;
   }
 
   double get _pinchDistance {
@@ -188,22 +154,11 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
                       ? TerminalCursorType.block
                       : TerminalCursorType.verticalBar,
                   alwaysShowCursor: true,
-                  simulateScroll: widget.session.host.startHerdrOnConnect
-                      ? false
-                      : !widget.herdrScrollMode,
-                  altBufferScrollSimulate: widget.altBufferScrollSimulate,
+                  simulateScroll: !widget.session.host.startHerdrOnConnect,
+                  altBufferScrollSimulate: false,
                 );
               },
             ),
-            if (widget.herdrScrollMode)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onVerticalDragUpdate: _handleHerdrScrollDrag,
-                  onVerticalDragEnd: _handleHerdrScrollEnd,
-                  child: const SizedBox.expand(),
-                ),
-              ),
           ],
         ),
       ),

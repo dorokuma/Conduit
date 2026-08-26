@@ -75,7 +75,6 @@ enum TerminalKeyboardAction {
   paste,
   functionKeys,
   herdrPrefix,
-  herdrScrollback,
   herdrMenu,
   snippets,
   compose,
@@ -167,7 +166,6 @@ const defaultTerminalKeyboardActions = [
   TerminalKeyboardAction.pageDown,
   TerminalKeyboardAction.functionKeys,
   TerminalKeyboardAction.herdrPrefix,
-  TerminalKeyboardAction.herdrScrollback,
   TerminalKeyboardAction.herdrMenu,
   TerminalKeyboardAction.snippets,
   TerminalKeyboardAction.fullscreen,
@@ -224,14 +222,12 @@ const preTrackingTerminalKeyboardActionNames = <String>{
   'paste',
   'functionKeys',
   'herdrPrefix',
-  'herdrScrollback',
   'herdrMenu',
   'compose',
 };
 
 const herdrTerminalKeyboardActions = [
   TerminalKeyboardAction.herdrPrefix,
-  TerminalKeyboardAction.herdrScrollback,
   TerminalKeyboardAction.herdrMenu,
 ];
 
@@ -259,7 +255,6 @@ const defaultTerminalKeyboardItems = [
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.pageDown),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.functionKeys),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrPrefix),
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrScrollback),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrMenu),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.snippets),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.fullscreen),
@@ -267,7 +262,6 @@ const defaultTerminalKeyboardItems = [
 
 const herdrTerminalKeyboardItems = [
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrPrefix),
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrScrollback),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrMenu),
 ];
 
@@ -379,7 +373,6 @@ extension TerminalKeyboardActionDetails on TerminalKeyboardAction {
     TerminalKeyboardAction.paste => 'Paste',
     TerminalKeyboardAction.functionKeys => 'Fn',
     TerminalKeyboardAction.herdrPrefix => 'Herdr',
-    TerminalKeyboardAction.herdrScrollback => 'Scroll',
     TerminalKeyboardAction.herdrMenu => 'Herdr+',
     TerminalKeyboardAction.snippets => 'Snip',
     TerminalKeyboardAction.compose => 'Compose',

@@ -15,8 +15,6 @@ class ThemePreferences {
     this.terminalKeyboardRows = defaultTerminalKeyboardRows,
     this.terminalSnippets = const [],
     this.showLocalShell = true,
-    this.terminalMouseInput = false,
-    this.altBufferScrollSimulate = true,
     this.terminalEnterSequence = TerminalEnterSequence.cr,
   });
 
@@ -27,8 +25,6 @@ class ThemePreferences {
   final List<TerminalKeyboardRow> terminalKeyboardRows;
   final List<TerminalSnippet> terminalSnippets;
   final bool showLocalShell;
-  final bool terminalMouseInput;
-  final bool altBufferScrollSimulate;
   final TerminalEnterSequence terminalEnterSequence;
 }
 
@@ -46,9 +42,6 @@ class ThemePreferencesRepository {
       'conduit.terminal_keyboard_seen_actions.v1';
   static const _terminalSnippetsKey = 'conduit.terminal_snippets.v1';
   static const _showLocalShellKey = 'conduit.show_local_shell.v1';
-  static const _terminalMouseInputKey = 'conduit.terminal_mouse_input.v1';
-  static const _altBufferScrollSimulateKey =
-      'conduit.alt_buffer_scroll_simulate.v1';
   static const _terminalEnterSequenceKey = 'conduit.terminal_enter_sequence.v1';
 
   final FlutterSecureStorage _storage;
@@ -69,12 +62,6 @@ class ThemePreferencesRepository {
     );
     final rawTerminalSnippets = await _storage.read(key: _terminalSnippetsKey);
     final rawShowLocalShell = await _storage.read(key: _showLocalShellKey);
-    final rawTerminalMouseInput = await _storage.read(
-      key: _terminalMouseInputKey,
-    );
-    final rawAltBufferScrollSimulate = await _storage.read(
-      key: _altBufferScrollSimulateKey,
-    );
     final rawTerminalEnterSequence = await _storage.read(
       key: _terminalEnterSequenceKey,
     );
@@ -106,9 +93,6 @@ class ThemePreferencesRepository {
       terminalKeyboardRows: terminalKeyboardRows,
       terminalSnippets: _parseTerminalSnippets(rawTerminalSnippets),
       showLocalShell: rawShowLocalShell == null || rawShowLocalShell == 'true',
-      terminalMouseInput: rawTerminalMouseInput == 'true',
-      altBufferScrollSimulate:
-          rawAltBufferScrollSimulate == null || rawAltBufferScrollSimulate == 'true',
       terminalEnterSequence: TerminalEnterSequence.values.firstWhere(
         (sequence) => sequence.name == rawTerminalEnterSequence,
         orElse: () => TerminalEnterSequence.cr,
@@ -154,14 +138,6 @@ class ThemePreferencesRepository {
     await _storage.write(
       key: _showLocalShellKey,
       value: preferences.showLocalShell.toString(),
-    );
-    await _storage.write(
-      key: _terminalMouseInputKey,
-      value: preferences.terminalMouseInput.toString(),
-    );
-    await _storage.write(
-      key: _altBufferScrollSimulateKey,
-      value: preferences.altBufferScrollSimulate.toString(),
     );
     await _storage.write(
       key: _terminalEnterSequenceKey,
@@ -379,7 +355,6 @@ class ThemePreferencesRepository {
         }
         final migratedName = switch (actionName) {
           'tmuxPrefix' => 'herdrPrefix',
-          'tmuxScrollback' => 'herdrScrollback',
           'tmuxMenu' => 'herdrMenu',
           _ => actionName,
         };
