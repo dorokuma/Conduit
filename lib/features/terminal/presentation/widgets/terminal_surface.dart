@@ -37,12 +37,25 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   final _pinchPointers = <int, Offset>{};
   double? _pinchStartDistance;
   double? _pinchStartFontSize;
-  Timer? _scrollReturnTimer;
-  Terminal? _scrollTerminal;
   late final TerminalController _terminalController;
-  late final TerminalController _scrollTerminalController;
-  double _scrollOffset = 0;
-  bool _isScrolling = false;
+
+  /// Whether herdr copy mode has been entered for the current scroll gesture.
+  bool _inCopyMode = false;
+
+  /// Accumulated scroll line delta while not in copy mode; a light flick
+  /// below the entry threshold does not enter copy mode.
+  int _pendingLines = 0;
+
+  /// Auto-exits herdr copy mode after this long without further scrolling.
+  Timer? _copyModeExitTimer;
+
+  /// Minimum accumulated scroll lines before entering copy mode.
+  static const _copyModeEnterThreshold = 3;
+
+  /// Cap for a single scroll burst, so a drag fling cannot flood the PTY.
+  static const _maxCopyModeScrollLines = 40;
+
+  static const _copyModeExitDelay = Duration(milliseconds: 1500);
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
@@ -56,7 +69,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     _terminalController = TerminalController(
       pointerInputs: _pointerInputsFor(widget.terminalMouseInput),
     );
-    _scrollTerminalController = TerminalController();
     widget.session.predictiveEchoEnabled = widget.predictiveEchoEnabled;
     WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
   }
@@ -81,8 +93,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   @override
   void dispose() {
     _terminalController.dispose();
-    _scrollTerminalController.dispose();
-    _scrollReturnTimer?.cancel();
+    _copyModeExitTimer?.cancel();
     super.dispose();
   }
 
@@ -128,82 +139,45 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     return points.length < 2 ? 0 : (points[0] - points[1]).distance;
   }
 
-  // ── 滚动辅助 ──
-
-  double get _maxScrollOffset =>
-      (widget.session.outputCache.length - _visibleHistoryBytes)
-          .clamp(0, double.infinity)
-          .toDouble();
-
-  int get _visibleHistoryBytes =>
-      widget.session.terminal.viewWidth *
-      widget.session.terminal.viewHeight *
-      8;
+  // ── herdr copy mode 滚动映射 ──
 
   /// 备用屏触摸滚动回调，由 conduit_vt 的 [TerminalView.onTouchScroll] 转发
-  /// 行数增量来驱动缓存历史 overlay。lines 为负 = 看更旧历史（滚动偏移增大），
-  /// lines 为正 = 回到新内容（滚动偏移减小）。
+  /// 行数增量。把行增量翻译成按键发给 pty，让 herdr 自己的 copy mode 滚动
+  /// （字节切片 overlay 方案已废弃）。conduit_vt 约定：手指上滑（看更旧
+  /// 内容）delta 为正，手指下滑（回新内容）delta 为负。
+  /// 上滑 → 'k'（copy mode 光标上移，看更旧），下滑 → 'j'。
   void _onTerminalTouchScroll(int lines) {
-    final bytesPerLine = widget.session.terminal.viewWidth * 8.0;
-    final scrollBytes =
-        (-lines * bytesPerLine).clamp(-_maxScrollOffset, _maxScrollOffset);
-    _scrollOffset = (_scrollOffset + scrollBytes).clamp(0, _maxScrollOffset);
-    _scrollReturnTimer?.cancel();
-    _scrollReturnTimer =
-        Timer(const Duration(milliseconds: 1500), _returnToLive);
-    if (!_isScrolling) {
-      setState(() => _isScrolling = true);
-    }
-    _rebuildScrollTerminal();
-  }
+    final terminal = widget.session.terminal;
 
-  void _returnToLive() {
-    if (!mounted) return;
-    setState(() {
-      _scrollOffset = 0;
-      _scrollTerminal = null;
-      _isScrolling = false;
+    if (!_inCopyMode) {
+      _pendingLines += lines;
+      if (_pendingLines.abs() < _copyModeEnterThreshold) {
+        return;
+      }
+      // 进入 herdr copy mode：prefix（默认 ctrl+b，控制字符 \x02）然后 '['。
+      terminal.textInput('\x02');
+      terminal.textInput('[');
+      _inCopyMode = true;
+      lines = _pendingLines;
+      _pendingLines = 0;
+    }
+
+    final absLines = lines.abs();
+    final n = absLines > _maxCopyModeScrollLines
+        ? _maxCopyModeScrollLines
+        : absLines;
+    final key = lines > 0 ? 'k' : 'j';
+    for (var i = 0; i < n; i++) {
+      terminal.textInput(key);
+    }
+
+    // 每次滚动重置退出计时；1.5s 无滚动后发 'q' 退出 copy mode。
+    _copyModeExitTimer?.cancel();
+    _copyModeExitTimer = Timer(_copyModeExitDelay, () {
+      terminal.textInput('q');
+      _inCopyMode = false;
+      _pendingLines = 0;
     });
-  }
-
-  void _rebuildScrollTerminal() {
-    if (_scrollOffset <= 0) {
-      if (_scrollTerminal != null) {
-        setState(() => _scrollTerminal = null);
-      }
-      return;
-    }
-    final terminal = Terminal();
-    terminal.resize(
-      widget.session.terminal.viewWidth,
-      widget.session.terminal.viewHeight,
-    );
-    final end = widget.session.outputCache.length - _scrollOffset.round();
-    if (end <= 0) {
-      setState(() => _scrollTerminal = null);
-      return;
-    }
-
-    // 多读 4096 字节余量找完整 ANSI 边界
-    final readLen = (_visibleHistoryBytes + 4096).clamp(0, end);
-    final start = (end - readLen).clamp(0, end);
-    final bytes = widget.session.outputCache.readRange(start, end - start);
-
-    // 找最近的 ANSI 序列边界
-    int actualStart = 0;
-    for (int i = 0; i < bytes.length && i < 4096; i++) {
-      if (bytes[i] == 0x1b && i + 1 < bytes.length && bytes[i + 1] == 0x5b) {
-        actualStart = i;
-        break;
-      }
-      if (bytes[i] == 0x0a) {
-        actualStart = i + 1;
-      }
-    }
-
-    final writeBytes = bytes.sublist(actualStart);
-    terminal.write(String.fromCharCodes(writeBytes));
-    setState(() => _scrollTerminal = terminal);
   }
 
   // ── build ──
@@ -218,56 +192,32 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
         onPointerMove: _handlePointerMove,
         onPointerUp: _handlePointerEnd,
         onPointerCancel: _handlePointerEnd,
-        child: Stack(
-          children: [
-            // TerminalView 正常处理所有手势（tap/键盘/选择/Scrollable）
-            // 滚动 overlay 期间用 AbsorbPointer 阻止误触
-            AbsorbPointer(
-              absorbing: _scrollTerminal != null,
-              child: ListenableBuilder(
-                listenable: widget.session.terminalPaintListenable,
-                builder: (context, _) {
-                  final overlays = widget.session.overlays;
-                  return TerminalView(
-                    widget.session.terminal,
-                    controller: _terminalController,
-                    focusNode: widget.focusNode,
-                    autofocus: widget.focusNode != null,
-                    deleteDetection: true,
-                    keyboardType: TextInputType.visiblePassword,
-                    theme: widget.palette.terminalThemeFor(widget.brightness),
-                    overlays: overlays,
-                    textStyle: TerminalStyle(
-                      fontFamily: widget.fontFamily,
-                      fontSize: widget.fontSize,
-                    ),
-                    padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                    cursorType: overlays.isEmpty
-                        ? TerminalCursorType.block
-                        : TerminalCursorType.verticalBar,
-                    alwaysShowCursor: true,
-                    simulateScroll: !isHerdr,
-                    onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
-                  );
-                },
+        child: ListenableBuilder(
+          listenable: widget.session.terminalPaintListenable,
+          builder: (context, _) {
+            final overlays = widget.session.overlays;
+            return TerminalView(
+              widget.session.terminal,
+              controller: _terminalController,
+              focusNode: widget.focusNode,
+              autofocus: widget.focusNode != null,
+              deleteDetection: true,
+              keyboardType: TextInputType.visiblePassword,
+              theme: widget.palette.terminalThemeFor(widget.brightness),
+              overlays: overlays,
+              textStyle: TerminalStyle(
+                fontFamily: widget.fontFamily,
+                fontSize: widget.fontSize,
               ),
-            ),
-            // 历史画面 overlay
-            if (_scrollTerminal != null)
-              IgnorePointer(
-                child: TerminalView(
-                  _scrollTerminal!,
-                  controller: _scrollTerminalController,
-                  theme: widget.palette.terminalThemeFor(widget.brightness),
-                  textStyle: TerminalStyle(
-                    fontFamily: widget.fontFamily,
-                    fontSize: widget.fontSize,
-                  ),
-                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                  simulateScroll: false,
-                ),
-              ),
-          ],
+              padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
+              cursorType: overlays.isEmpty
+                  ? TerminalCursorType.block
+                  : TerminalCursorType.verticalBar,
+              alwaysShowCursor: true,
+              simulateScroll: !isHerdr,
+              onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
+            );
+          },
         ),
       ),
     );
