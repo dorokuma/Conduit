@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit/core/theme/app_palette.dart';
 import 'package:conduit/features/terminal/presentation/terminal_session_controller.dart';
 import 'package:conduit_vt/conduit_vt.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 class TerminalSurface extends StatefulWidget {
@@ -43,8 +44,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   late final TerminalController _scrollTerminalController;
   double _scrollOffset = 0;
   bool _isScrolling = false;
-  Offset? _lastPointerPosition;
-  Offset? _scrollStart;
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
@@ -95,8 +94,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
 
   void _handlePointerDown(PointerDownEvent event) {
     _pinchPointers[event.pointer] = event.localPosition;
-    _lastPointerPosition = event.localPosition;
-    if (_pinchPointers.length == 1) _scrollStart = event.localPosition;
     if (_pinchPointers.length == 2) {
       _pinchStartDistance = _pinchDistance;
       _pinchStartFontSize = widget.fontSize;
@@ -106,33 +103,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   void _handlePointerMove(PointerMoveEvent event) {
     if (!_pinchPointers.containsKey(event.pointer)) return;
     _pinchPointers[event.pointer] = event.localPosition;
-    final previous = _lastPointerPosition;
-    _lastPointerPosition = event.localPosition;
-    if (_pinchPointers.length == 1 && previous != null) {
-      final start = _scrollStart;
-      if (start != null && (event.localPosition.dy - start.dy).abs() > 12) {
-        final dy = event.localPosition.dy - previous.dy;
-        // 每 2px 滚 1 行（viewWidth*8 字节），比逐字节滚动更流畅
-        final scrollLines = (dy / 2).round();
-        final scrollBytes =
-            scrollLines *
-            _visibleHistoryBytes ~/
-            widget.session.terminal.viewHeight;
-        _scrollOffset = (_scrollOffset - scrollBytes).clamp(
-          0,
-          _maxScrollOffset,
-        );
-        _scrollReturnTimer?.cancel();
-        _scrollReturnTimer = Timer(
-          const Duration(milliseconds: 1500),
-          _returnToLive,
-        );
-        if (!_isScrolling) {
-          setState(() => _isScrolling = true);
-        }
-        _rebuildScrollTerminal();
-      }
-    }
     final startDistance = _pinchStartDistance;
     final startFontSize = _pinchStartFontSize;
     if (_pinchPointers.length != 2 ||
@@ -146,7 +116,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
 
   void _handlePointerEnd(PointerEvent event) {
     _pinchPointers.remove(event.pointer);
-    _lastPointerPosition = null;
     if (_pinchPointers.length < 2) {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
@@ -154,6 +123,42 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     if (_pinchPointers.isEmpty && _isScrolling) {
       setState(() => _isScrolling = false);
     }
+  }
+
+  // VerticalDragGestureRecognizer 在手势竞技场赢得触摸拖拽后回调。
+  void _onDragStart(DragStartDetails details) {
+    if (_pinchPointers.length > 1) return;
+    _scrollReturnTimer?.cancel();
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    // 双指缩放时忽略拖拽，避免捏合时误滚动
+    if (_pinchPointers.length > 1) return;
+    // details.delta.dy 是本次移动增量（像素）
+    // 向上滑（负 dy）= 看更旧的历史（offset 增大）
+    // 向下滑（正 dy）= 看更新的历史（offset 减小）
+    final scrollLines = (details.delta.dy / 2).round();
+    final scrollBytes =
+        scrollLines *
+        _visibleHistoryBytes ~/
+        widget.session.terminal.viewHeight;
+    _scrollOffset = (_scrollOffset - scrollBytes).clamp(
+      0,
+      _maxScrollOffset,
+    );
+    _scrollReturnTimer?.cancel();
+    _scrollReturnTimer = Timer(
+      const Duration(milliseconds: 1500),
+      _returnToLive,
+    );
+    if (!_isScrolling) {
+      setState(() => _isScrolling = true);
+    }
+    _rebuildScrollTerminal();
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    // 保留 _scrollReturnTimer，松手 1.5 秒后自动回实时
   }
 
   double get _maxScrollOffset =>
@@ -225,61 +230,93 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   @override
   Widget build(BuildContext context) {
     return ClipRect(
-      child: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: _handlePointerDown,
-        onPointerMove: _handlePointerMove,
-        onPointerUp: _handlePointerEnd,
-        onPointerCancel: _handlePointerEnd,
-        child: Stack(
-          children: [
-            AbsorbPointer(
-              // 滚动或查看历史时阻止底层 TerminalView 收到 pointer 事件，
-              // 避免误触发文本选择/鼠标事件导致 herdr 画面乱码
-              absorbing: _isScrolling || _scrollTerminal != null,
-              child: ListenableBuilder(
-                listenable: widget.session.terminalPaintListenable,
-                builder: (context, _) {
-                  final overlays = widget.session.overlays;
-                  return TerminalView(
-                    widget.session.terminal,
-                    controller: _terminalController,
-                    focusNode: widget.focusNode,
-                    autofocus: widget.focusNode != null,
-                    deleteDetection: true,
-                    keyboardType: TextInputType.visiblePassword,
-                    theme: widget.palette.terminalThemeFor(widget.brightness),
-                    overlays: overlays,
-                    textStyle: TerminalStyle(
-                      fontFamily: widget.fontFamily,
-                      fontSize: widget.fontSize,
-                    ),
-                    padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                    cursorType: overlays.isEmpty
-                        ? TerminalCursorType.block
-                        : TerminalCursorType.verticalBar,
-                    alwaysShowCursor: true,
-                    simulateScroll: !widget.session.host.startHerdrOnConnect,
-                  );
-                },
-              ),
-            ),
-            if (_scrollTerminal != null)
-              IgnorePointer(
-                child: TerminalView(
-                  _scrollTerminal!,
-                  controller: _scrollTerminalController,
+      child: Stack(
+        children: [
+          AbsorbPointer(
+            // 滚动或查看历史时阻止底层 TerminalView 收到 pointer 事件，
+            // 避免误触发文本选择/鼠标事件导致 herdr 画面乱码
+            absorbing: _isScrolling || _scrollTerminal != null,
+            child: ListenableBuilder(
+              listenable: widget.session.terminalPaintListenable,
+              builder: (context, _) {
+                final overlays = widget.session.overlays;
+                return TerminalView(
+                  widget.session.terminal,
+                  controller: _terminalController,
+                  focusNode: widget.focusNode,
+                  autofocus: widget.focusNode != null,
+                  deleteDetection: true,
+                  keyboardType: TextInputType.visiblePassword,
                   theme: widget.palette.terminalThemeFor(widget.brightness),
+                  overlays: overlays,
                   textStyle: TerminalStyle(
                     fontFamily: widget.fontFamily,
                     fontSize: widget.fontSize,
                   ),
                   padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                  simulateScroll: false,
+                  cursorType: overlays.isEmpty
+                      ? TerminalCursorType.block
+                      : TerminalCursorType.verticalBar,
+                  alwaysShowCursor: true,
+                  simulateScroll: !widget.session.host.startHerdrOnConnect,
+                );
+              },
+            ),
+          ),
+          // 手势捕获层：RawGestureDetector 主动参与手势竞技场，而不是像
+          // Listener 那样被动截取。
+          // - VerticalDragGestureRecognizer 竞争触摸垂直拖拽：移动超过
+          //   touch slop 后赢得竞技场 → 从输出缓存重建历史滚动。
+          // - tap 不在此层注册 recognizer（translucent 透传）：TerminalView
+          //   自身的 tap recognizer 正常赢得轻点，继续处理 SGR 鼠标点击
+          //   （切 pane）、聚焦与长按选词，无需手动转发。
+          // - 双指缩放仍由内部 Listener 被动监听距离变化（不参与竞技场冲突）。
+          Positioned.fill(
+            child: RawGestureDetector(
+              behavior: HitTestBehavior.translucent,
+              excludeFromSemantics: true,
+              gestures: <Type, GestureRecognizerFactory>{
+                VerticalDragGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<
+                        VerticalDragGestureRecognizer>(
+                  () => VerticalDragGestureRecognizer(
+                    supportedDevices: const <PointerDeviceKind>{
+                      PointerDeviceKind.touch,
+                    },
+                  ),
+                  (VerticalDragGestureRecognizer instance) {
+                    instance
+                      ..onStart = _onDragStart
+                      ..onUpdate = _onDragUpdate
+                      ..onEnd = _onDragEnd;
+                  },
                 ),
+              },
+              child: Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: _handlePointerDown,
+                onPointerMove: _handlePointerMove,
+                onPointerUp: _handlePointerEnd,
+                onPointerCancel: _handlePointerEnd,
+                child: const SizedBox.expand(),
               ),
-          ],
-        ),
+            ),
+          ),
+          if (_scrollTerminal != null)
+            IgnorePointer(
+              child: TerminalView(
+                _scrollTerminal!,
+                controller: _scrollTerminalController,
+                theme: widget.palette.terminalThemeFor(widget.brightness),
+                textStyle: TerminalStyle(
+                  fontFamily: widget.fontFamily,
+                  fontSize: widget.fontSize,
+                ),
+                padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
+                simulateScroll: false,
+              ),
+            ),
+        ],
       ),
     );
   }
