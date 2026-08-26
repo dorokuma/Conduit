@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:conduit/core/app_failure.dart';
 import 'package:conduit/core/theme/terminal_appearance.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
+import 'package:conduit/features/terminal/data/pty_output_cache.dart';
 import 'package:conduit/features/terminal/domain/network_connectivity.dart';
 import 'package:conduit/features/terminal/domain/predictive_echo.dart';
 import 'package:conduit/features/terminal/domain/predictive_terminal_session.dart';
@@ -44,6 +45,7 @@ class TerminalSessionController extends ChangeNotifier {
   final TerminalKeyboardController keyboard;
   final Terminal terminal;
   final _outputFilter = TerminalStringSequenceFilter();
+  final PtyOutputCache outputCache = PtyOutputCache();
   final _predictiveEcho = PredictiveEcho();
   final _terminalPaintNotifier = ChangeNotifier();
   final Stopwatch _inputClock = Stopwatch()..start();
@@ -174,6 +176,7 @@ class TerminalSessionController extends ChangeNotifier {
 
       _stdoutSubscription = session.stdout
           .cast<List<int>>()
+          .transform(_cacheOutput())
           .transform(const Utf8Decoder(allowMalformed: true))
           .listen(
             (chunk) => _writeTerminalOutput(_outputFilter.process(chunk)),
@@ -181,6 +184,7 @@ class TerminalSessionController extends ChangeNotifier {
           );
       _stderrSubscription = session.stderr
           .cast<List<int>>()
+          .transform(_cacheOutput())
           .transform(const Utf8Decoder(allowMalformed: true))
           .listen(_writeTerminalOutput, onError: _handleStreamError);
       _doneSubscription = session.done.asStream().listen((_) {
@@ -462,6 +466,15 @@ class TerminalSessionController extends ChangeNotifier {
 
   String _normalizeEnterOutput(String data) {
     return _isEnterOutput(data) ? _enterSequence.value : data;
+  }
+
+  StreamTransformer<List<int>, List<int>> _cacheOutput() {
+    return StreamTransformer<List<int>, List<int>>.fromHandlers(
+      handleData: (chunk, sink) {
+        outputCache.append(Uint8List.fromList(chunk));
+        sink.add(chunk);
+      },
+    );
   }
 
   void _writeTerminalOutput(String data) {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/core/theme/app_palette.dart';
 import 'package:conduit/features/terminal/presentation/terminal_session_controller.dart';
 import 'package:conduit_vt/conduit_vt.dart';
@@ -35,7 +37,13 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   final _pinchPointers = <int, Offset>{};
   double? _pinchStartDistance;
   double? _pinchStartFontSize;
+  Timer? _scrollReturnTimer;
+  Terminal? _scrollTerminal;
   late final TerminalController _terminalController;
+  late final TerminalController _scrollTerminalController;
+  double _scrollOffset = 0;
+  Offset? _lastPointerPosition;
+  Offset? _scrollStart;
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
@@ -49,6 +57,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     _terminalController = TerminalController(
       pointerInputs: _pointerInputsFor(widget.terminalMouseInput),
     );
+    _scrollTerminalController = TerminalController();
     widget.session.predictiveEchoEnabled = widget.predictiveEchoEnabled;
     WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
   }
@@ -73,6 +82,8 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   @override
   void dispose() {
     _terminalController.dispose();
+    _scrollTerminalController.dispose();
+    _scrollReturnTimer?.cancel();
     super.dispose();
   }
 
@@ -83,6 +94,8 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
 
   void _handlePointerDown(PointerDownEvent event) {
     _pinchPointers[event.pointer] = event.localPosition;
+    _lastPointerPosition = event.localPosition;
+    if (_pinchPointers.length == 1) _scrollStart = event.localPosition;
     if (_pinchPointers.length == 2) {
       _pinchStartDistance = _pinchDistance;
       _pinchStartFontSize = widget.fontSize;
@@ -90,10 +103,23 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
-    if (!_pinchPointers.containsKey(event.pointer)) {
-      return;
-    }
+    if (!_pinchPointers.containsKey(event.pointer)) return;
     _pinchPointers[event.pointer] = event.localPosition;
+    final previous = _lastPointerPosition;
+    _lastPointerPosition = event.localPosition;
+    if (_pinchPointers.length == 1 && previous != null) {
+      final start = _scrollStart;
+      if (start != null && (event.localPosition.dy - start.dy).abs() > 8) {
+        final dy = event.localPosition.dy - previous.dy;
+        _scrollOffset = (_scrollOffset - dy).clamp(0, _maxScrollOffset);
+        _scrollReturnTimer?.cancel();
+        _scrollReturnTimer = Timer(
+          const Duration(milliseconds: 1500),
+          _returnToLive,
+        );
+        _rebuildScrollTerminal();
+      }
+    }
     final startDistance = _pinchStartDistance;
     final startFontSize = _pinchStartFontSize;
     if (_pinchPointers.length != 2 ||
@@ -107,18 +133,54 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
 
   void _handlePointerEnd(PointerEvent event) {
     _pinchPointers.remove(event.pointer);
+    _lastPointerPosition = null;
     if (_pinchPointers.length < 2) {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
     }
   }
 
+  double get _maxScrollOffset =>
+      (widget.session.outputCache.length - _visibleHistoryBytes)
+          .clamp(0, double.infinity)
+          .toDouble();
+
+  int get _visibleHistoryBytes =>
+      widget.session.terminal.viewWidth *
+      widget.session.terminal.viewHeight *
+      8;
+
   double get _pinchDistance {
     final points = _pinchPointers.values.take(2).toList();
-    if (points.length < 2) {
-      return 0;
+    return points.length < 2 ? 0 : (points[0] - points[1]).distance;
+  }
+
+  void _returnToLive() {
+    if (!mounted) return;
+    setState(() {
+      _scrollOffset = 0;
+      _scrollTerminal = null;
+    });
+  }
+
+  void _rebuildScrollTerminal() {
+    if (_scrollOffset <= 0) {
+      if (_scrollTerminal != null) {
+        setState(() => _scrollTerminal = null);
+      }
+
+      return;
     }
-    return (points[0] - points[1]).distance;
+    final terminal = Terminal();
+    terminal.resize(
+      widget.session.terminal.viewWidth,
+      widget.session.terminal.viewHeight,
+    );
+    final end = widget.session.outputCache.length - _scrollOffset.round();
+    final start = (end - _visibleHistoryBytes).clamp(0, end);
+    final bytes = widget.session.outputCache.readRange(start, end - start);
+    terminal.write(String.fromCharCodes(bytes));
+    setState(() => _scrollTerminal = terminal);
   }
 
   @override
@@ -155,10 +217,23 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
                       : TerminalCursorType.verticalBar,
                   alwaysShowCursor: true,
                   simulateScroll: !widget.session.host.startHerdrOnConnect,
-                  altBufferScrollSimulate: false,
                 );
               },
             ),
+            if (_scrollTerminal != null)
+              IgnorePointer(
+                child: TerminalView(
+                  _scrollTerminal!,
+                  controller: _scrollTerminalController,
+                  theme: widget.palette.terminalThemeFor(widget.brightness),
+                  textStyle: TerminalStyle(
+                    fontFamily: widget.fontFamily,
+                    fontSize: widget.fontSize,
+                  ),
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
+                  simulateScroll: false,
+                ),
+              ),
           ],
         ),
       ),
