@@ -42,6 +42,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   late final TerminalController _terminalController;
   late final TerminalController _scrollTerminalController;
   double _scrollOffset = 0;
+  bool _isScrolling = false;
   Offset? _lastPointerPosition;
   Offset? _scrollStart;
 
@@ -109,14 +110,26 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     _lastPointerPosition = event.localPosition;
     if (_pinchPointers.length == 1 && previous != null) {
       final start = _scrollStart;
-      if (start != null && (event.localPosition.dy - start.dy).abs() > 8) {
+      if (start != null && (event.localPosition.dy - start.dy).abs() > 12) {
         final dy = event.localPosition.dy - previous.dy;
-        _scrollOffset = (_scrollOffset - dy).clamp(0, _maxScrollOffset);
+        // 每 2px 滚 1 行（viewWidth*8 字节），比逐字节滚动更流畅
+        final scrollLines = (dy / 2).round();
+        final scrollBytes =
+            scrollLines *
+            _visibleHistoryBytes ~/
+            widget.session.terminal.viewHeight;
+        _scrollOffset = (_scrollOffset - scrollBytes).clamp(
+          0,
+          _maxScrollOffset,
+        );
         _scrollReturnTimer?.cancel();
         _scrollReturnTimer = Timer(
           const Duration(milliseconds: 1500),
           _returnToLive,
         );
+        if (!_isScrolling) {
+          setState(() => _isScrolling = true);
+        }
         _rebuildScrollTerminal();
       }
     }
@@ -137,6 +150,9 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     if (_pinchPointers.length < 2) {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
+    }
+    if (_pinchPointers.isEmpty && _isScrolling) {
+      setState(() => _isScrolling = false);
     }
   }
 
@@ -160,6 +176,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     setState(() {
       _scrollOffset = 0;
       _scrollTerminal = null;
+      _isScrolling = false;
     });
   }
 
@@ -177,9 +194,31 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
       widget.session.terminal.viewHeight,
     );
     final end = widget.session.outputCache.length - _scrollOffset.round();
-    final start = (end - _visibleHistoryBytes).clamp(0, end);
+    if (end <= 0) {
+      setState(() => _scrollTerminal = null);
+      return;
+    }
+    // 多读 512 字节余量，在前面找 ANSI 序列边界
+    final readLen = (_visibleHistoryBytes + 512).clamp(0, end);
+    final start = (end - readLen).clamp(0, end);
     final bytes = widget.session.outputCache.readRange(start, end - start);
-    terminal.write(String.fromCharCodes(bytes));
+
+    // 从这批字节前面找最近的 ANSI 序列起始边界，避免从半个转义序列中间开始解析
+    int actualStart = 0;
+    for (int i = 0; i < bytes.length && i < 512; i++) {
+      if (bytes[i] == 0x1b && i + 1 < bytes.length && bytes[i + 1] == 0x5b) {
+        // 找到完整的 CSI 序列起始
+        actualStart = i;
+        break;
+      }
+      if (bytes[i] == 0x0a) {
+        // 换行符也是安全边界
+        actualStart = i + 1;
+      }
+    }
+
+    final writeBytes = bytes.sublist(actualStart);
+    terminal.write(String.fromCharCodes(writeBytes));
     setState(() => _scrollTerminal = terminal);
   }
 
@@ -194,31 +233,36 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
         onPointerCancel: _handlePointerEnd,
         child: Stack(
           children: [
-            ListenableBuilder(
-              listenable: widget.session.terminalPaintListenable,
-              builder: (context, _) {
-                final overlays = widget.session.overlays;
-                return TerminalView(
-                  widget.session.terminal,
-                  controller: _terminalController,
-                  focusNode: widget.focusNode,
-                  autofocus: widget.focusNode != null,
-                  deleteDetection: true,
-                  keyboardType: TextInputType.visiblePassword,
-                  theme: widget.palette.terminalThemeFor(widget.brightness),
-                  overlays: overlays,
-                  textStyle: TerminalStyle(
-                    fontFamily: widget.fontFamily,
-                    fontSize: widget.fontSize,
-                  ),
-                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                  cursorType: overlays.isEmpty
-                      ? TerminalCursorType.block
-                      : TerminalCursorType.verticalBar,
-                  alwaysShowCursor: true,
-                  simulateScroll: !widget.session.host.startHerdrOnConnect,
-                );
-              },
+            AbsorbPointer(
+              // 滚动或查看历史时阻止底层 TerminalView 收到 pointer 事件，
+              // 避免误触发文本选择/鼠标事件导致 herdr 画面乱码
+              absorbing: _isScrolling || _scrollTerminal != null,
+              child: ListenableBuilder(
+                listenable: widget.session.terminalPaintListenable,
+                builder: (context, _) {
+                  final overlays = widget.session.overlays;
+                  return TerminalView(
+                    widget.session.terminal,
+                    controller: _terminalController,
+                    focusNode: widget.focusNode,
+                    autofocus: widget.focusNode != null,
+                    deleteDetection: true,
+                    keyboardType: TextInputType.visiblePassword,
+                    theme: widget.palette.terminalThemeFor(widget.brightness),
+                    overlays: overlays,
+                    textStyle: TerminalStyle(
+                      fontFamily: widget.fontFamily,
+                      fontSize: widget.fontSize,
+                    ),
+                    padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
+                    cursorType: overlays.isEmpty
+                        ? TerminalCursorType.block
+                        : TerminalCursorType.verticalBar,
+                    alwaysShowCursor: true,
+                    simulateScroll: !widget.session.host.startHerdrOnConnect,
+                  );
+                },
+              ),
             ),
             if (_scrollTerminal != null)
               IgnorePointer(
