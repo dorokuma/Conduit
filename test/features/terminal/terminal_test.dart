@@ -31,31 +31,31 @@ import '../../support/test_doubles.dart';
 
 void main() {
   group('TerminalSessionController', () {
-    test('builds quoted tmux startup command when enabled', () {
+    test('builds quoted herdr startup command when enabled', () {
       final controller = TerminalSessionController(
-        host: buildHost('tmux-create').copyWith(
-          startTmuxOnConnect: true,
-          tmuxSessionName: 'work session',
-          tmuxStartDirectory: "~/client's app",
+        host: buildHost('herdr-create').copyWith(
+          startHerdrOnConnect: true,
+          herdrSessionName: 'work session',
+          herdrStartDirectory: "~/client's app",
         ),
         repository: ImmediateTerminalRepository(TrackableTerminalSession()),
       );
       addTearDown(controller.dispose);
 
       expect(
-        controller.buildTmuxCommandForTesting(),
-        "tmux new-session -A -s 'work session' -c '~/client'\\''s app'\r",
+        controller.buildHerdrCommandForTesting(),
+        "herdr session attach 'work session'\r",
       );
     });
 
-    test('does not build a tmux startup command when disabled', () {
+    test('does not build a herdr startup command when disabled', () {
       final controller = TerminalSessionController(
-        host: buildHost('tmux-off'),
+        host: buildHost('herdr-off'),
         repository: ImmediateTerminalRepository(TrackableTerminalSession()),
       );
       addTearDown(controller.dispose);
 
-      expect(controller.buildTmuxCommandForTesting(), isNull);
+      expect(controller.buildHerdrCommandForTesting(), isNull);
     });
 
     test('ignores a connection that completes after disconnect', () async {
@@ -97,13 +97,13 @@ void main() {
       controller.dispose();
     });
 
-    test('detaches tmux and exits before closing a mosh tab', () async {
+    test('detaches herdr and exits before closing a mosh tab', () async {
       final session = TrackableTerminalSession(completeAfterSends: 2);
       final controller = TerminalSessionController(
-        host: buildHost('mosh-tmux').copyWith(
+        host: buildHost('mosh-herdr').copyWith(
           useMosh: true,
-          startTmuxOnConnect: true,
-          tmuxPrefixKey: TmuxPrefixKey.controlA,
+          startHerdrOnConnect: true,
+          herdrPrefixKey: HerdrPrefixKey.controlA,
         ),
         repository: ImmediateTerminalRepository(session),
       );
@@ -112,7 +112,7 @@ void main() {
       session.sent.clear();
       await controller.disconnect();
 
-      expect(session.sent.map(String.fromCharCodes), ['\x01d', 'exit\r']);
+      expect(session.sent.map(String.fromCharCodes), ['\x01q', 'exit\r']);
       expect(session.closeCount, 1);
 
       controller.dispose();
@@ -343,10 +343,10 @@ void main() {
               globalSnippets: const [],
               fullscreen: false,
               onToggleFullscreen: () {},
-              onEnterTmuxScrollMode: () {},
-              onExitTmuxScrollMode: () {},
-              tmuxPrefixKey: TmuxPrefixKey.controlB,
-              tmuxScrollMode: false,
+              onEnterHerdrScrollMode: () {},
+              onExitHerdrScrollMode: () {},
+              herdrPrefixKey: HerdrPrefixKey.controlB,
+              herdrScrollMode: false,
             ),
           ),
         ),
@@ -406,10 +406,10 @@ void main() {
                       TerminalKeyboardAction.controlD,
                     ),
                     TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.tmuxPrefix,
+                      TerminalKeyboardAction.herdrPrefix,
                     ),
                     TerminalKeyboardItem.builtIn(
-                      TerminalKeyboardAction.tmuxMenu,
+                      TerminalKeyboardAction.herdrMenu,
                     ),
                     TerminalKeyboardItem.builtIn(
                       TerminalKeyboardAction.pageDown,
@@ -423,10 +423,10 @@ void main() {
               globalSnippets: const [],
               fullscreen: false,
               onToggleFullscreen: () {},
-              onEnterTmuxScrollMode: () {},
-              onExitTmuxScrollMode: () {},
-              tmuxPrefixKey: TmuxPrefixKey.controlB,
-              tmuxScrollMode: false,
+              onEnterHerdrScrollMode: () {},
+              onExitHerdrScrollMode: () {},
+              herdrPrefixKey: HerdrPrefixKey.controlB,
+              herdrScrollMode: false,
             ),
           ),
         ),
@@ -485,10 +485,10 @@ void main() {
               fullscreen: false,
               onToggleFullscreen: () {},
               onToggleCompose: () {},
-              onEnterTmuxScrollMode: () {},
-              onExitTmuxScrollMode: () {},
-              tmuxPrefixKey: TmuxPrefixKey.controlB,
-              tmuxScrollMode: false,
+              onEnterHerdrScrollMode: () {},
+              onExitHerdrScrollMode: () {},
+              herdrPrefixKey: HerdrPrefixKey.controlB,
+              herdrScrollMode: false,
             ),
           ),
         ),
@@ -546,10 +546,10 @@ void main() {
               globalSnippets: const [],
               fullscreen: false,
               onToggleFullscreen: () {},
-              onEnterTmuxScrollMode: () {},
-              onExitTmuxScrollMode: () {},
-              tmuxPrefixKey: TmuxPrefixKey.controlB,
-              tmuxScrollMode: false,
+              onEnterHerdrScrollMode: () {},
+              onExitHerdrScrollMode: () {},
+              herdrPrefixKey: HerdrPrefixKey.controlB,
+              herdrScrollMode: false,
             ),
           ),
         ),
@@ -608,10 +608,10 @@ void main() {
               ],
               fullscreen: false,
               onToggleFullscreen: () {},
-              onEnterTmuxScrollMode: () {},
-              onExitTmuxScrollMode: () {},
-              tmuxPrefixKey: TmuxPrefixKey.controlB,
-              tmuxScrollMode: false,
+              onEnterHerdrScrollMode: () {},
+              onExitHerdrScrollMode: () {},
+              herdrPrefixKey: HerdrPrefixKey.controlB,
+              herdrScrollMode: false,
             ),
           ),
         ),
@@ -637,7 +637,7 @@ void main() {
       ]);
     });
 
-    testWidgets('tmux scroll key enters scrollback mode', (tester) async {
+    testWidgets('herdr scroll key enters scrollback mode', (tester) async {
       final controller = _RecordingTerminalSessionController();
       final focusNode = FocusNode();
       var enteredScrollMode = false;
@@ -645,7 +645,7 @@ void main() {
       addTearDown(focusNode.dispose);
       addTearDown(controller.dispose);
 
-      Widget buildBar({required bool tmuxScrollMode}) => MaterialApp(
+      Widget buildBar({required bool herdrScrollMode}) => MaterialApp(
         home: Scaffold(
           body: TerminalKeyboardBar(
             controller: controller,
@@ -656,7 +656,7 @@ void main() {
               TerminalKeyboardRow(
                 items: [
                   TerminalKeyboardItem.builtIn(
-                    TerminalKeyboardAction.tmuxScrollback,
+                    TerminalKeyboardAction.herdrScrollback,
                   ),
                 ],
               ),
@@ -664,29 +664,29 @@ void main() {
             globalSnippets: const [],
             fullscreen: false,
             onToggleFullscreen: () {},
-            onEnterTmuxScrollMode: () => enteredScrollMode = true,
-            onExitTmuxScrollMode: () => exitedScrollMode = true,
-            tmuxPrefixKey: TmuxPrefixKey.controlB,
-            tmuxScrollMode: tmuxScrollMode,
+            onEnterHerdrScrollMode: () => enteredScrollMode = true,
+            onExitHerdrScrollMode: () => exitedScrollMode = true,
+            herdrPrefixKey: HerdrPrefixKey.controlB,
+            herdrScrollMode: herdrScrollMode,
           ),
         ),
       );
 
-      await tester.pumpWidget(buildBar(tmuxScrollMode: false));
+      await tester.pumpWidget(buildBar(herdrScrollMode: false));
       await tester.tap(find.text('Scroll'));
 
       expect(controller.sentControlKeys, [TerminalKey.keyB]);
       expect(controller.sentText, ['[']);
       expect(enteredScrollMode, isTrue);
 
-      await tester.pumpWidget(buildBar(tmuxScrollMode: true));
+      await tester.pumpWidget(buildBar(herdrScrollMode: true));
       await tester.tap(find.text('Scroll'));
 
       expect(controller.sentText, ['[', 'q']);
       expect(exitedScrollMode, isTrue);
     });
 
-    testWidgets('tmux scroll mode drags without visible overlay', (
+    testWidgets('herdr scroll mode drags without visible overlay', (
       tester,
     ) async {
       final controller = _RecordingTerminalSessionController();
@@ -707,14 +707,14 @@ void main() {
               predictiveEchoEnabled: false,
               terminalMouseInput: false,
               focusNode: focusNode,
-              tmuxScrollMode: true,
-              onExitTmuxScrollMode: () {},
+              herdrScrollMode: true,
+              onExitHerdrScrollMode: () {},
             ),
           ),
         ),
       );
 
-      expect(find.text('tmux scroll'), findsNothing);
+      expect(find.text('herdr scroll'), findsNothing);
       expect(find.text('Exit'), findsNothing);
 
       await tester.drag(find.byType(TerminalSurface), const Offset(0, 84));

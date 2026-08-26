@@ -20,7 +20,7 @@
   },
   "hero": {
     "title": "The terminal your servers deserve, on the phone in your hand.",
-    "body": "Conduit is a mobile-first workspace for SSH, Mosh, and SFTP. Hardware security keys, tmux, and a real Linux shell, engineered so working from your phone never feels like a compromise.",
+    "body": "Conduit is a mobile-first workspace for SSH, Mosh, and SFTP. Hardware security keys, herdr, and a real Linux shell, engineered so working from your phone never feels like a compromise.",
     "trust": [
       "Open source",
       "No telemetry",
@@ -63,16 +63,16 @@
         ],
         "alt": "Conduit saved machines list with tags and search"
       },
-      "tmux": {
-        "eyebrow": "tmux",
-        "title": "tmux, attached before you type",
-        "body": "Flip one switch on a host and every connect attaches to your tmux session, or creates it, in the directory and under the name you chose. Prefix, action, and scrollback keys live right in the key row, so Ctrl-B chords stop being finger yoga on glass.",
+      "herdr": {
+        "eyebrow": "herdr",
+        "title": "herdr, attached before you type",
+        "body": "Flip one switch on a host and every connect attaches to your herdr session, or creates it, in the directory and under the name you chose. Prefix, action, and scrollback keys live right in the key row, so Ctrl-B chords stop being finger yoga on glass.",
         "points": [
           "Auto attach or create on connect",
           "Per-host session name and start directory",
           "Prefix, actions, and scrollback in the key row"
         ],
-        "alt": "Conduit per-host tmux settings"
+        "alt": "Conduit per-host herdr settings"
       },
       "nvim": {
         "eyebrow": "Workflow",

@@ -24,8 +24,8 @@ anything. Hosts, keys, and trusted fingerprints stay on the device - no account,
 no cloud sync, no subscription. Open a normal SSH shell, or a Mosh session that
 rides out Wi-Fi drops and cellular handoffs instead of dying with them. Sessions
 live in tabs, with on-screen modifier, arrow, and function keys for the things a
-phone keyboard doesn't have. Per-host tmux integration can attach or create a
-session on connect, choose the start directory, and expose tmux prefix, action,
+phone keyboard doesn't have. Per-host herdr integration can attach or create a
+session on connect, choose the start directory, and expose herdr prefix, action,
 and scrollback controls from the key row.
 
 On Android arm64, Conduit can also run an optional local Arch Linux shell
@@ -49,7 +49,7 @@ Dart implementation of the protocol, and the terminal is
 - SSH terminal sessions with saved machine profiles, tag and search filters,
   sorting by last connected, name, or date added, and tabbed workspaces.
 - Mosh sessions for roaming across Wi-Fi drops and network changes.
-- Per-host tmux integration with auto attach/create, start directories, prefix
+- Per-host herdr integration with auto attach/create, start directories, prefix
   key selection, action shortcuts, and scrollback mode.
 - SFTP browser for navigating, downloading, uploading, renaming, and deleting files.
 - OpenSSH private key, password, hardware security key, and external

@@ -753,7 +753,7 @@ class _KeyboardActionsEditorState extends State<_KeyboardActionsEditor> {
                     style: theme.textTheme.titleLarge,
                   ),
                   const Spacer(),
-                  TextButton(onPressed: _addTmux, child: const Text('Tmux')),
+                  TextButton(onPressed: _addHerdr, child: const Text('Herdr')),
                   IconButton(
                     tooltip: 'Close',
                     onPressed: () => Navigator.of(context).pop(),
@@ -844,14 +844,14 @@ class _KeyboardActionsEditorState extends State<_KeyboardActionsEditor> {
     widget.onChanged(next);
   }
 
-  void _addTmux() {
+  void _addHerdr() {
     final selectedActions = _selected
         .map((item) => item.action)
         .whereType<TerminalKeyboardAction>()
         .toSet();
     _setSelected([
       ..._selected,
-      ...tmuxTerminalKeyboardItems.where(
+      ...herdrTerminalKeyboardItems.where(
         (item) => !selectedActions.contains(item.action),
       ),
     ]);
@@ -1094,9 +1094,9 @@ IconData _keyboardActionIcon(TerminalKeyboardAction action) {
     TerminalKeyboardAction.dash => Icons.text_fields_rounded,
     TerminalKeyboardAction.paste => Icons.content_paste_rounded,
     TerminalKeyboardAction.functionKeys => Icons.keyboard_rounded,
-    TerminalKeyboardAction.tmuxPrefix => Icons.keyboard_command_key_rounded,
-    TerminalKeyboardAction.tmuxScrollback => Icons.swap_vert_rounded,
-    TerminalKeyboardAction.tmuxMenu => Icons.view_quilt_rounded,
+    TerminalKeyboardAction.herdrPrefix => Icons.keyboard_command_key_rounded,
+    TerminalKeyboardAction.herdrScrollback => Icons.swap_vert_rounded,
+    TerminalKeyboardAction.herdrMenu => Icons.view_quilt_rounded,
     TerminalKeyboardAction.snippets => Icons.snippet_folder_rounded,
     TerminalKeyboardAction.compose => Icons.edit_note_rounded,
   };

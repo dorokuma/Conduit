@@ -23,10 +23,10 @@ class TerminalKeyboardBar extends StatelessWidget {
     required this.onToggleFullscreen,
     this.composeActive = false,
     this.onToggleCompose,
-    required this.onEnterTmuxScrollMode,
-    required this.onExitTmuxScrollMode,
-    required this.tmuxPrefixKey,
-    required this.tmuxScrollMode,
+    required this.onEnterHerdrScrollMode,
+    required this.onExitHerdrScrollMode,
+    required this.herdrPrefixKey,
+    required this.herdrScrollMode,
     super.key,
   });
 
@@ -40,10 +40,10 @@ class TerminalKeyboardBar extends StatelessWidget {
   final VoidCallback onToggleFullscreen;
   final bool composeActive;
   final VoidCallback? onToggleCompose;
-  final VoidCallback onEnterTmuxScrollMode;
-  final VoidCallback onExitTmuxScrollMode;
-  final TmuxPrefixKey tmuxPrefixKey;
-  final bool tmuxScrollMode;
+  final VoidCallback onEnterHerdrScrollMode;
+  final VoidCallback onExitHerdrScrollMode;
+  final HerdrPrefixKey herdrPrefixKey;
+  final bool herdrScrollMode;
 
   @override
   Widget build(BuildContext context) {
@@ -191,27 +191,27 @@ class TerminalKeyboardBar extends StatelessWidget {
             PopupMenuItem(value: item.key, child: Text(item.label)),
         ],
       ),
-      TerminalKeyboardAction.tmuxPrefix => _Key(
+      TerminalKeyboardAction.herdrPrefix => _Key(
         label: action.label,
         palette: palette,
         brightness: brightness,
-        onPressed: _sendTmuxPrefix,
+        onPressed: _sendHerdrPrefix,
       ),
-      TerminalKeyboardAction.tmuxScrollback => _Key(
+      TerminalKeyboardAction.herdrScrollback => _Key(
         label: action.label,
         palette: palette,
         brightness: brightness,
-        selected: tmuxScrollMode,
-        onPressed: _toggleTmuxScrollMode,
+        selected: herdrScrollMode,
+        onPressed: _toggleHerdrScrollMode,
       ),
-      TerminalKeyboardAction.tmuxMenu => _MenuKey<_TmuxAction>(
-        label: 'Tmux+',
-        tooltip: 'Tmux actions',
+      TerminalKeyboardAction.herdrMenu => _MenuKey<_HerdrAction>(
+        label: 'Herdr+',
+        tooltip: 'Herdr actions',
         palette: palette,
         brightness: brightness,
-        onSelected: _triggerTmuxAction,
+        onSelected: _triggerHerdrAction,
         items: [
-          for (final action in _TmuxAction.values)
+          for (final action in _HerdrAction.values)
             PopupMenuItem(
               value: action,
               child: Row(
@@ -281,9 +281,9 @@ class TerminalKeyboardBar extends StatelessWidget {
       case TerminalKeyboardAction.arrowRight:
       case TerminalKeyboardAction.paste:
       case TerminalKeyboardAction.functionKeys:
-      case TerminalKeyboardAction.tmuxPrefix:
-      case TerminalKeyboardAction.tmuxScrollback:
-      case TerminalKeyboardAction.tmuxMenu:
+      case TerminalKeyboardAction.herdrPrefix:
+      case TerminalKeyboardAction.herdrScrollback:
+      case TerminalKeyboardAction.herdrMenu:
       case TerminalKeyboardAction.snippets:
       case TerminalKeyboardAction.compose:
         break;
@@ -359,8 +359,8 @@ class TerminalKeyboardBar extends StatelessWidget {
     }
   }
 
-  void _triggerTmuxAction(_TmuxAction action) {
-    _sendTmuxPrefix();
+  void _triggerHerdrAction(_HerdrAction action) {
+    _sendHerdrPrefix();
     final key = action.key;
     if (key != null) {
       controller.sendKey(key);
@@ -368,19 +368,20 @@ class TerminalKeyboardBar extends StatelessWidget {
       controller.sendText(action.text!);
     }
     if (action.entersScrollMode) {
-      onEnterTmuxScrollMode();
+      onEnterHerdrScrollMode();
     }
     _focusTerminal();
   }
 
-  void _toggleTmuxScrollMode() {
-    if (tmuxScrollMode) {
-      controller.sendText('q');
-      onExitTmuxScrollMode();
+  void _toggleHerdrScrollMode() {
+    if (herdrScrollMode) {
+      _sendHerdrPrefix();
+      _sendText('q');
+      onExitHerdrScrollMode();
       _focusTerminal();
       return;
     }
-    _triggerTmuxAction(_TmuxAction.copyMode);
+    _triggerHerdrAction(_HerdrAction.copyMode);
   }
 
   void _triggerCustomItem(TerminalKeyboardItem item) {
@@ -417,10 +418,10 @@ class TerminalKeyboardBar extends StatelessWidget {
     _focusTerminal();
   }
 
-  void _sendTmuxPrefix() {
-    controller.sendControl(switch (tmuxPrefixKey) {
-      TmuxPrefixKey.controlB => TerminalKey.keyB,
-      TmuxPrefixKey.controlA => TerminalKey.keyA,
+  void _sendHerdrPrefix() {
+    controller.sendControl(switch (herdrPrefixKey) {
+      HerdrPrefixKey.controlB => TerminalKey.keyB,
+      HerdrPrefixKey.controlA => TerminalKey.keyA,
     });
     _focusTerminal();
   }
@@ -503,58 +504,24 @@ class _SnippetMenuRow extends StatelessWidget {
   }
 }
 
-enum _TmuxAction {
-  newWindow('New window', Icons.add_box_rounded, text: 'c'),
-  previousWindow('Previous window', Icons.skip_previous_rounded, text: 'p'),
-  nextWindow('Next window', Icons.skip_next_rounded, text: 'n'),
-  windowList('Window list', Icons.view_list_rounded, text: 'w'),
-  lastWindow('Last window', Icons.history_rounded, text: 'l'),
-  renameWindow(
-    'Rename window',
-    Icons.drive_file_rename_outline_rounded,
-    text: ',',
-  ),
-  splitHorizontal('Split horizontal', Icons.splitscreen_rounded, text: '"'),
-  splitVertical('Split vertical', Icons.vertical_split_rounded, text: '%'),
-  paneLeft(
-    'Pane left',
-    Icons.keyboard_arrow_left_rounded,
-    key: TerminalKey.arrowLeft,
-  ),
-  paneRight(
-    'Pane right',
-    Icons.keyboard_arrow_right_rounded,
-    key: TerminalKey.arrowRight,
-  ),
+enum _HerdrAction {
+  newTab('New tab', Icons.add_box_rounded, text: 'c'),
+  previousTab('Previous tab', Icons.skip_previous_rounded, text: 'p'),
+  nextTab('Next tab', Icons.skip_next_rounded, text: 'n'),
+  workspacePicker('Workspace picker', Icons.view_list_rounded, text: 'w'),
+  splitHorizontal('Split horizontal', Icons.splitscreen_rounded, text: '-'),
+  splitVertical('Split vertical', Icons.vertical_split_rounded, text: 'v'),
+  paneLeft('Pane left', Icons.keyboard_arrow_left_rounded, key: TerminalKey.arrowLeft),
+  paneRight('Pane right', Icons.keyboard_arrow_right_rounded, key: TerminalKey.arrowRight),
   paneUp('Pane up', Icons.keyboard_arrow_up_rounded, key: TerminalKey.arrowUp),
-  paneDown(
-    'Pane down',
-    Icons.keyboard_arrow_down_rounded,
-    key: TerminalKey.arrowDown,
-  ),
+  paneDown('Pane down', Icons.keyboard_arrow_down_rounded, key: TerminalKey.arrowDown),
   zoomPane('Zoom pane', Icons.zoom_out_map_rounded, text: 'z'),
-  commandPrompt(
-    'Command prompt',
-    Icons.keyboard_command_key_rounded,
-    text: ':',
-  ),
-  copyMode(
-    'Scrollback',
-    Icons.swap_vert_rounded,
-    text: '[',
-    entersScrollMode: true,
-  ),
+  editScrollback('Edit scrollback', Icons.edit_note_rounded, text: 'e'),
+  copyMode('Scrollback', Icons.swap_vert_rounded, text: '[', entersScrollMode: true),
   closePane('Close pane', Icons.close_fullscreen_rounded, text: 'x'),
-  closeWindow('Close window', Icons.disabled_by_default_rounded, text: '&'),
-  detach('Detach', Icons.logout_rounded, text: 'd');
+  detach('Detach', Icons.logout_rounded, text: 'q');
 
-  const _TmuxAction(
-    this.label,
-    this.icon, {
-    this.text,
-    this.key,
-    this.entersScrollMode = false,
-  });
+  const _HerdrAction(this.label, this.icon, {this.text, this.key, this.entersScrollMode = false});
 
   final String label;
   final IconData icon;

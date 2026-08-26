@@ -297,12 +297,12 @@ class HostAdvancedSection extends StatelessWidget {
     required this.timeoutController,
     required this.moshLocaleController,
     required this.moshPortsController,
-    required this.tmuxSessionNameController,
-    required this.tmuxStartDirectoryController,
+    required this.herdrSessionNameController,
+    required this.herdrStartDirectoryController,
     required this.useMosh,
     required this.predictiveEchoEnabled,
-    required this.startTmuxOnConnect,
-    required this.tmuxPrefixKey,
+    required this.startHerdrOnConnect,
+    required this.herdrPrefixKey,
     required this.snippets,
     required this.connectSnippetId,
     required this.timeoutValidator,
@@ -311,8 +311,8 @@ class HostAdvancedSection extends StatelessWidget {
     required this.onRemoveTag,
     required this.onUseMoshChanged,
     required this.onPredictiveEchoChanged,
-    required this.onStartTmuxOnConnectChanged,
-    required this.onTmuxPrefixKeyChanged,
+    required this.onStartHerdrOnConnectChanged,
+    required this.onHerdrPrefixKeyChanged,
     required this.onSnippetsChanged,
     required this.onConnectSnippetChanged,
     super.key,
@@ -324,12 +324,12 @@ class HostAdvancedSection extends StatelessWidget {
   final TextEditingController timeoutController;
   final TextEditingController moshLocaleController;
   final TextEditingController moshPortsController;
-  final TextEditingController tmuxSessionNameController;
-  final TextEditingController tmuxStartDirectoryController;
+  final TextEditingController herdrSessionNameController;
+  final TextEditingController herdrStartDirectoryController;
   final bool useMosh;
   final bool predictiveEchoEnabled;
-  final bool startTmuxOnConnect;
-  final TmuxPrefixKey tmuxPrefixKey;
+  final bool startHerdrOnConnect;
+  final HerdrPrefixKey herdrPrefixKey;
   final List<TerminalSnippet> snippets;
   final String connectSnippetId;
   final FormFieldValidator<String> timeoutValidator;
@@ -338,8 +338,8 @@ class HostAdvancedSection extends StatelessWidget {
   final ValueChanged<String> onRemoveTag;
   final ValueChanged<bool> onUseMoshChanged;
   final ValueChanged<bool> onPredictiveEchoChanged;
-  final ValueChanged<bool> onStartTmuxOnConnectChanged;
-  final ValueChanged<TmuxPrefixKey> onTmuxPrefixKeyChanged;
+  final ValueChanged<bool> onStartHerdrOnConnectChanged;
+  final ValueChanged<HerdrPrefixKey> onHerdrPrefixKeyChanged;
   final ValueChanged<List<TerminalSnippet>> onSnippetsChanged;
   final ValueChanged<String> onConnectSnippetChanged;
 
@@ -435,21 +435,21 @@ class HostAdvancedSection extends StatelessWidget {
           color: Colors.transparent,
           child: SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Start tmux on connect'),
+            title: const Text('Start herdr on connect'),
             subtitle: const Text(
-              'Attach to the named tmux session, or create it if needed.',
+              'Attach to the named herdr session, or create it if needed.',
             ),
-            value: startTmuxOnConnect,
-            onChanged: onStartTmuxOnConnectChanged,
+            value: startHerdrOnConnect,
+            onChanged: onStartHerdrOnConnectChanged,
           ),
         ),
-        if (startTmuxOnConnect) ...[
+        if (startHerdrOnConnect) ...[
           const SizedBox(height: 16),
           TextFormField(
-            controller: tmuxSessionNameController,
+            controller: herdrSessionNameController,
             decoration: const InputDecoration(
-              labelText: 'Tmux session name',
-              hintText: defaultTmuxSessionName,
+              labelText: 'Herdr session name',
+              hintText: defaultHerdrSessionName,
               helperText: 'Conduit attaches to this session, or creates it.',
               helperMaxLines: 2,
               prefixIcon: Icon(Icons.view_stream_outlined),
@@ -460,13 +460,12 @@ class HostAdvancedSection extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           TextFormField(
-            controller: tmuxStartDirectoryController,
+            controller: herdrStartDirectoryController,
             decoration: const InputDecoration(
-              labelText: 'Tmux start directory',
+              labelText: 'Herdr start directory',
               hintText: '~/projects',
               helperText:
-                  'Used when a new tmux session is created. An existing tmux '
-                  'session keeps its directory.',
+                  'Configure via herdr config new_cwd or a connect snippet.',
               helperMaxLines: 2,
               prefixIcon: Icon(Icons.folder_outlined),
             ),
@@ -476,21 +475,21 @@ class HostAdvancedSection extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
-        DropdownButtonFormField<TmuxPrefixKey>(
-          initialValue: tmuxPrefixKey,
+        DropdownButtonFormField<HerdrPrefixKey>(
+          initialValue: herdrPrefixKey,
           decoration: const InputDecoration(
-            labelText: 'Tmux prefix',
-            helperText: 'Used by the Tmux and Tmux+ key-row buttons.',
+            labelText: 'Herdr prefix',
+            helperText: 'Used by the Herdr and Herdr+ key-row buttons.',
             helperMaxLines: 2,
             prefixIcon: Icon(Icons.keyboard_command_key_rounded),
           ),
           items: [
-            for (final key in TmuxPrefixKey.values)
+            for (final key in HerdrPrefixKey.values)
               DropdownMenuItem(value: key, child: Text(key.label)),
           ],
           onChanged: (value) {
             if (value != null) {
-              onTmuxPrefixKeyChanged(value);
+              onHerdrPrefixKeyChanged(value);
             }
           },
         ),

@@ -38,7 +38,7 @@ class _TerminalPageState extends State<TerminalPage> {
   final _focusNode = FocusNode();
   TerminalSessionController? _focusedSession;
   bool _fullscreen = false;
-  bool _tmuxScrollMode = false;
+  bool _herdrScrollMode = false;
   bool _composeMode = false;
   // Compose recall: recently SENT lines (deduped, oldest first, capped) so a
   // line sent into a mode that discarded it can be recalled; plus the current
@@ -95,8 +95,8 @@ class _TerminalPageState extends State<TerminalPage> {
     final active = widget.workspace.activeSession;
     if (active == null || active == _focusedSession) return;
     _focusedSession = active;
-    if (_tmuxScrollMode) {
-      setState(() => _tmuxScrollMode = false);
+    if (_herdrScrollMode) {
+      setState(() => _herdrScrollMode = false);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
@@ -205,10 +205,10 @@ class _TerminalPageState extends State<TerminalPage> {
                                 focusNode: session == activeSession
                                     ? _focusNode
                                     : null,
-                                tmuxScrollMode:
-                                    session == activeSession && _tmuxScrollMode,
-                                onExitTmuxScrollMode: () {
-                                  setState(() => _tmuxScrollMode = false);
+                                herdrScrollMode:
+                                    session == activeSession && _herdrScrollMode,
+                                onExitHerdrScrollMode: () {
+                                  setState(() => _herdrScrollMode = false);
                                   _focusNode.requestFocus();
                                 },
                               ),
@@ -268,14 +268,14 @@ class _TerminalPageState extends State<TerminalPage> {
                         composeActive: _composeMode,
                         onToggleCompose: () =>
                             setState(() => _composeMode = !_composeMode),
-                        tmuxPrefixKey: activeSession.host.tmuxPrefixKey,
-                        tmuxScrollMode: _tmuxScrollMode,
-                        onEnterTmuxScrollMode: () {
-                          setState(() => _tmuxScrollMode = true);
+                        herdrPrefixKey: activeSession.host.herdrPrefixKey,
+                        herdrScrollMode: _herdrScrollMode,
+                        onEnterHerdrScrollMode: () {
+                          setState(() => _herdrScrollMode = true);
                           _focusNode.requestFocus();
                         },
-                        onExitTmuxScrollMode: () {
-                          setState(() => _tmuxScrollMode = false);
+                        onExitHerdrScrollMode: () {
+                          setState(() => _herdrScrollMode = false);
                           _focusNode.requestFocus();
                         },
                       ),

@@ -47,10 +47,10 @@ class _HostFormPageState extends State<HostFormPage> {
   final _timeoutController = TextEditingController(text: '12');
   final _moshLocaleController = TextEditingController(text: 'C.UTF-8');
   final _moshPortsController = TextEditingController();
-  final _tmuxSessionNameController = TextEditingController(
-    text: defaultTmuxSessionName,
+  final _herdrSessionNameController = TextEditingController(
+    text: defaultHerdrSessionName,
   );
-  final _tmuxStartDirectoryController = TextEditingController();
+  final _herdrStartDirectoryController = TextEditingController();
   final FocusNode _tagFocusNode = FocusNode();
   SshAuthMethod _authMethod = SshAuthMethod.password;
   bool _showPassword = false;
@@ -59,8 +59,8 @@ class _HostFormPageState extends State<HostFormPage> {
   bool _predictiveEchoEnabled = false;
   bool _externalAuthOfferKey = true;
   bool _forwardAgent = false;
-  bool _startTmuxOnConnect = false;
-  TmuxPrefixKey _tmuxPrefixKey = defaultTmuxPrefixKey;
+  bool _startHerdrOnConnect = false;
+  HerdrPrefixKey _herdrPrefixKey = defaultHerdrPrefixKey;
   List<String> _tags = const [];
   List<HardwareKeyEntry> _hardwareKeys = const [];
   List<TerminalSnippet> _snippets = const [];
@@ -110,10 +110,10 @@ class _HostFormPageState extends State<HostFormPage> {
       _predictiveEchoEnabled = host.predictiveEchoEnabled;
       _externalAuthOfferKey = host.externalAuthOfferKey;
       _forwardAgent = host.forwardAgent;
-      _startTmuxOnConnect = host.startTmuxOnConnect;
-      _tmuxPrefixKey = host.tmuxPrefixKey;
-      _tmuxSessionNameController.text = host.tmuxSessionName;
-      _tmuxStartDirectoryController.text = host.tmuxStartDirectory;
+      _startHerdrOnConnect = host.startHerdrOnConnect;
+      _herdrPrefixKey = host.herdrPrefixKey;
+      _herdrSessionNameController.text = host.herdrSessionName;
+      _herdrStartDirectoryController.text = host.herdrStartDirectory;
       _snippets = List<TerminalSnippet>.from(host.snippets);
       _connectSnippetId = host.connectSnippetId;
     }
@@ -194,8 +194,8 @@ class _HostFormPageState extends State<HostFormPage> {
     _timeoutController.dispose();
     _moshLocaleController.dispose();
     _moshPortsController.dispose();
-    _tmuxSessionNameController.dispose();
-    _tmuxStartDirectoryController.dispose();
+    _herdrSessionNameController.dispose();
+    _herdrStartDirectoryController.dispose();
     super.dispose();
   }
 
@@ -288,12 +288,12 @@ class _HostFormPageState extends State<HostFormPage> {
               timeoutController: _timeoutController,
               moshLocaleController: _moshLocaleController,
               moshPortsController: _moshPortsController,
-              tmuxSessionNameController: _tmuxSessionNameController,
-              tmuxStartDirectoryController: _tmuxStartDirectoryController,
+              herdrSessionNameController: _herdrSessionNameController,
+              herdrStartDirectoryController: _herdrStartDirectoryController,
               useMosh: _useMosh,
               predictiveEchoEnabled: _predictiveEchoEnabled,
-              startTmuxOnConnect: _startTmuxOnConnect,
-              tmuxPrefixKey: _tmuxPrefixKey,
+              startHerdrOnConnect: _startHerdrOnConnect,
+              herdrPrefixKey: _herdrPrefixKey,
               snippets: _snippets,
               connectSnippetId: _connectSnippetId,
               timeoutValidator: _validateTimeout,
@@ -308,10 +308,10 @@ class _HostFormPageState extends State<HostFormPage> {
               }),
               onPredictiveEchoChanged: (value) =>
                   setState(() => _predictiveEchoEnabled = value),
-              onStartTmuxOnConnectChanged: (value) =>
-                  setState(() => _startTmuxOnConnect = value),
-              onTmuxPrefixKeyChanged: (value) =>
-                  setState(() => _tmuxPrefixKey = value),
+              onStartHerdrOnConnectChanged: (value) =>
+                  setState(() => _startHerdrOnConnect = value),
+              onHerdrPrefixKeyChanged: (value) =>
+                  setState(() => _herdrPrefixKey = value),
               onSnippetsChanged: (snippets) => setState(() {
                 _snippets = snippets;
                 if (!_snippets.any(
@@ -711,12 +711,12 @@ class _HostFormPageState extends State<HostFormPage> {
           : _moshLocaleController.text.trim(),
       moshPorts: _useMosh ? _moshPortsController.text.trim() : '',
       predictiveEchoEnabled: _predictiveEchoEnabled,
-      startTmuxOnConnect: _startTmuxOnConnect,
-      tmuxPrefixKey: _tmuxPrefixKey,
-      tmuxSessionName: _tmuxSessionNameController.text.trim().isEmpty
-          ? defaultTmuxSessionName
-          : _tmuxSessionNameController.text.trim(),
-      tmuxStartDirectory: _tmuxStartDirectoryController.text.trim(),
+      startHerdrOnConnect: _startHerdrOnConnect,
+      herdrPrefixKey: _herdrPrefixKey,
+      herdrSessionName: _herdrSessionNameController.text.trim().isEmpty
+          ? defaultHerdrSessionName
+          : _herdrSessionNameController.text.trim(),
+      herdrStartDirectory: _herdrStartDirectoryController.text.trim(),
       snippets: List<TerminalSnippet>.unmodifiable(_snippets),
       connectSnippetId:
           _snippets.any((snippet) => snippet.id == _connectSnippetId)

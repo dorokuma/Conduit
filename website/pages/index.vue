@@ -44,7 +44,7 @@ const features = [
   { id: 'ssh-mosh', image: '/images/ssh-mosh.png' },
   { id: 'ai-agents', image: '/images/ai-agents.png' },
   { id: 'fleet', image: '/images/fleet.png' },
-  { id: 'tmux', image: '/images/tmux.png' },
+  { id: 'herdr', image: '/images/herdr.png' },
   { id: 'nvim', image: '/images/nvim.png' },
   { id: 'key-row', image: '/images/key-row.png' },
   { id: 'sftp', image: '/images/sftp.png' },

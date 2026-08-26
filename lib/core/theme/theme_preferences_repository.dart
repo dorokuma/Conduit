@@ -377,8 +377,14 @@ class ThemePreferencesRepository {
         if (actionName is! String) {
           return null;
         }
+        final migratedName = switch (actionName) {
+          'tmuxPrefix' => 'herdrPrefix',
+          'tmuxScrollback' => 'herdrScrollback',
+          'tmuxMenu' => 'herdrMenu',
+          _ => actionName,
+        };
         final action = TerminalKeyboardAction.values
-            .where((candidate) => candidate.name == actionName)
+            .where((candidate) => candidate.name == migratedName)
             .firstOrNull;
         return action == null ? null : TerminalKeyboardItem.builtIn(action);
       case TerminalKeyboardItemKind.customText:

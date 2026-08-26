@@ -2,12 +2,15 @@ import 'package:conduit/features/snippets/domain/terminal_snippet.dart';
 
 enum SshAuthMethod { password, privateKey, hardwareKey, external }
 
-enum TmuxPrefixKey { controlB, controlA }
+enum HerdrPrefixKey { controlB, controlA }
 
-const defaultTmuxPrefixKey = TmuxPrefixKey.controlB;
-const defaultTmuxSessionName = 'conduit';
+const defaultHerdrPrefixKey = HerdrPrefixKey.controlB;
+const defaultHerdrSessionName = 'conduit';
 
-bool _parseStartTmuxOnConnect(Map<String, Object?> json) {
+bool _parseStartHerdrOnConnect(Map<String, Object?> json) {
+  if (json.containsKey('startHerdrOnConnect')) {
+    return json['startHerdrOnConnect'] as bool? ?? false;
+  }
   return json['startTmuxOnConnect'] as bool? ?? false;
 }
 
@@ -115,10 +118,10 @@ String _parseMoshPorts(Map<String, Object?> json) {
   return MoshPortRange.tryParse(raw) == null ? '' : raw;
 }
 
-extension TmuxPrefixKeyDetails on TmuxPrefixKey {
+extension HerdrPrefixKeyDetails on HerdrPrefixKey {
   String get label => switch (this) {
-    TmuxPrefixKey.controlB => 'Ctrl-B',
-    TmuxPrefixKey.controlA => 'Ctrl-A',
+    HerdrPrefixKey.controlB => 'Ctrl-B',
+    HerdrPrefixKey.controlA => 'Ctrl-A',
   };
 }
 
@@ -142,10 +145,10 @@ class SavedHost {
     this.moshLocale = 'C.UTF-8',
     this.moshPorts = '',
     this.predictiveEchoEnabled = false,
-    this.startTmuxOnConnect = false,
-    this.tmuxPrefixKey = defaultTmuxPrefixKey,
-    this.tmuxSessionName = defaultTmuxSessionName,
-    this.tmuxStartDirectory = '',
+    this.startHerdrOnConnect = false,
+    this.herdrPrefixKey = defaultHerdrPrefixKey,
+    this.herdrSessionName = defaultHerdrSessionName,
+    this.herdrStartDirectory = '',
     this.snippets = const [],
     this.connectSnippetId = '',
     this.lastConnectedAt,
@@ -182,10 +185,10 @@ class SavedHost {
   final String moshLocale;
   final String moshPorts;
   final bool predictiveEchoEnabled;
-  final bool startTmuxOnConnect;
-  final TmuxPrefixKey tmuxPrefixKey;
-  final String tmuxSessionName;
-  final String tmuxStartDirectory;
+  final bool startHerdrOnConnect;
+  final HerdrPrefixKey herdrPrefixKey;
+  final String herdrSessionName;
+  final String herdrStartDirectory;
   final List<TerminalSnippet> snippets;
   final String connectSnippetId;
   final DateTime? lastConnectedAt;
@@ -255,10 +258,10 @@ class SavedHost {
     String? moshLocale,
     String? moshPorts,
     bool? predictiveEchoEnabled,
-    bool? startTmuxOnConnect,
-    TmuxPrefixKey? tmuxPrefixKey,
-    String? tmuxSessionName,
-    String? tmuxStartDirectory,
+    bool? startHerdrOnConnect,
+    HerdrPrefixKey? herdrPrefixKey,
+    String? herdrSessionName,
+    String? herdrStartDirectory,
     List<TerminalSnippet>? snippets,
     String? connectSnippetId,
     DateTime? lastConnectedAt,
@@ -286,10 +289,10 @@ class SavedHost {
       moshPorts: moshPorts ?? this.moshPorts,
       predictiveEchoEnabled:
           predictiveEchoEnabled ?? this.predictiveEchoEnabled,
-      startTmuxOnConnect: startTmuxOnConnect ?? this.startTmuxOnConnect,
-      tmuxPrefixKey: tmuxPrefixKey ?? this.tmuxPrefixKey,
-      tmuxSessionName: tmuxSessionName ?? this.tmuxSessionName,
-      tmuxStartDirectory: tmuxStartDirectory ?? this.tmuxStartDirectory,
+      startHerdrOnConnect: startHerdrOnConnect ?? this.startHerdrOnConnect,
+      herdrPrefixKey: herdrPrefixKey ?? this.herdrPrefixKey,
+      herdrSessionName: herdrSessionName ?? this.herdrSessionName,
+      herdrStartDirectory: herdrStartDirectory ?? this.herdrStartDirectory,
       snippets: snippets ?? this.snippets,
       connectSnippetId: connectSnippetId ?? this.connectSnippetId,
       lastConnectedAt: clearLastConnectedAt
@@ -326,10 +329,10 @@ class SavedHost {
       'moshLocale': moshLocale,
       'moshPorts': moshPorts,
       'predictiveEchoEnabled': predictiveEchoEnabled,
-      'startTmuxOnConnect': startTmuxOnConnect,
-      'tmuxPrefixKey': tmuxPrefixKey.name,
-      'tmuxSessionName': tmuxSessionName,
-      'tmuxStartDirectory': tmuxStartDirectory,
+      'startHerdrOnConnect': startHerdrOnConnect,
+      'herdrPrefixKey': herdrPrefixKey.name,
+      'herdrSessionName': herdrSessionName,
+      'herdrStartDirectory': herdrStartDirectory,
       'snippets': [for (final snippet in snippets) snippet.toJson()],
       'connectSnippetId': connectSnippetId,
       'lastConnectedAt': lastConnectedAt?.toIso8601String(),
@@ -371,16 +374,31 @@ class SavedHost {
           : 'C.UTF-8',
       moshPorts: _parseMoshPorts(json),
       predictiveEchoEnabled: json['predictiveEchoEnabled'] as bool? ?? false,
-      startTmuxOnConnect: _parseStartTmuxOnConnect(json),
-      tmuxPrefixKey: TmuxPrefixKey.values.firstWhere(
-        (key) => key.name == json['tmuxPrefixKey'],
-        orElse: () => defaultTmuxPrefixKey,
+      startHerdrOnConnect: _parseStartHerdrOnConnect(json),
+      herdrPrefixKey: HerdrPrefixKey.values.firstWhere(
+        (key) => key.name == (json.containsKey('herdrPrefixKey')
+            ? json['herdrPrefixKey']
+            : json['tmuxPrefixKey']),
+        orElse: () => defaultHerdrPrefixKey,
       ),
-      tmuxSessionName:
-          (json['tmuxSessionName'] as String?)?.trim().isNotEmpty == true
-          ? (json['tmuxSessionName'] as String).trim()
-          : defaultTmuxSessionName,
-      tmuxStartDirectory: (json['tmuxStartDirectory'] as String?)?.trim() ?? '',
+      herdrSessionName:
+          ((json.containsKey('herdrSessionName')
+                      ? json['herdrSessionName']
+                      : json['tmuxSessionName'])
+                  as String?)
+              ?.trim()
+              .isNotEmpty ==
+              true
+          ? ((json.containsKey('herdrSessionName')
+                      ? json['herdrSessionName']
+                      : json['tmuxSessionName']) as String)
+              .trim()
+          : defaultHerdrSessionName,
+      herdrStartDirectory: ((json.containsKey('herdrStartDirectory')
+                      ? json['herdrStartDirectory']
+                      : json['tmuxStartDirectory']) as String?)
+                  ?.trim() ??
+              '',
       snippets: (json['snippets'] as List? ?? const [])
           .map(TerminalSnippet.fromJson)
           .whereType<TerminalSnippet>()
