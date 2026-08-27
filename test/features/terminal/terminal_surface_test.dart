@@ -146,4 +146,34 @@ void main() {
 
     await flushTimers(tester);
   });
+
+  testWidgets(
+    'pending counter resets after pointer up: a follow-up idle interval '
+    'produces no further PageUps',
+    (tester) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+
+      // First drag triggers the end-flush, sets pending to 0, and
+      // cancels the flush timer.
+      await tester.drag(
+        find.byType(TerminalSurface),
+        const Offset(0, -300),
+      );
+      await tester.pump();
+      final afterFirstDrag = captured.length;
+      expect(afterFirstDrag, greaterThan(0));
+
+      // If the timer were still running, pumping 1 second of fake time
+      // would flush whatever happened to be left in the pending
+      // counter. With the fix, pending is reset on pointer-up and the
+      // timer is cancelled, so no further output should appear.
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        captured.length,
+        afterFirstDrag,
+        reason: '手势结束后 1 秒内不应再产生滚动序列',
+      );
+    },
+  );
 }

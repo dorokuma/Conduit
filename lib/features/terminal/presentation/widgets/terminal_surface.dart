@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:conduit/core/theme/app_palette.dart';
 import 'package:conduit/features/terminal/presentation/terminal_session_controller.dart';
+import 'package:conduit/features/terminal/presentation/widgets/touch_scroll_coalescer.dart';
 import 'package:conduit_vt/conduit_vt.dart';
 import 'package:flutter/material.dart';
 
@@ -37,6 +40,25 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   double? _pinchStartFontSize;
   late final TerminalController _terminalController;
 
+  // ── Touch-scroll coalescing ──
+  // conduit_vt 转发给我们的 onTouchScroll 回调，在原实现里 “1–3 行” 的
+  // 小增量会被 `abs < 4` 丢掉，但一旦快速拖动产生单个 ≥4 行增量就发
+  // ceil(abs/35) 页（最少 1 整页 35 行）。慢速划全忽略、快速划每事件
+  // 送一整页 → 一次手扫发出十几个 PageUp，PTY/远端 pi 被排成队列，
+  // 延迟从 5 秒堆到 90 秒，且迟到的 PageUp 风暴把用户的 PageDown
+  // 盖过，卡死在顶部滚不下来。
+  //
+  // 修复：纯逻辑抽出到 [TouchScrollCoalescer]（无副作用、可单元
+  // 测试），Widget 只负责累计行增量 + 周期冲刷 timer + 手势结束
+  // 补冲。回调只累加到 [_pendingScrollLines]（带方向符号，clamp
+  // 到 ±140 防积压失控），由 250ms 周期 timer 按当前待发页数冲刷
+  // （单次冲刷最多 2 页，≈8 页/秒上限，匹配远端 pi TUI 渲染能力），
+  // 手势结束时再补冲一次。
+  static const TouchScrollCoalescer _scrollCoalescer = TouchScrollCoalescer();
+  static const Duration _scrollFlushInterval = Duration(milliseconds: 250);
+  Timer? _scrollFlushTimer;
+  int _pendingScrollLines = 0; // 带方向符号的累计行数
+
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
         ? const PointerInputs({PointerInput.tap})
@@ -73,6 +95,8 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   @override
   void dispose() {
     _terminalController.dispose();
+    _scrollFlushTimer?.cancel();
+    _scrollFlushTimer = null;
     super.dispose();
   }
 
@@ -111,6 +135,18 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
     }
+    // 手势结束：把还没冲刷完的剩余行量一次性补发一页，然后取消 timer。
+    // 门槛 4 行（与原 `abs < 4 return` 同步）避免轻微抖动触发额外页面，
+    // 同时保证任何有意义的滚动都能在离手后即时生效。
+    if (_pendingScrollLines != 0) {
+      final endPages = _scrollCoalescer.endFlush(_pendingScrollLines);
+      if (endPages != 0) {
+        _emitScrollPages(endPages);
+      }
+      _pendingScrollLines = 0;
+    }
+    _scrollFlushTimer?.cancel();
+    _scrollFlushTimer = null;
   }
 
   double get _pinchDistance {
@@ -131,17 +167,55 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   /// - pi pane：herdr 的 scrollback 为空，把 PageUp/PageDown 转发给 pane
   ///   里的 pi，由 pi 翻页到对话开头。
   /// 上滑（看更旧）→ PageUp（\x1b[5~），下滑（回新）→ PageDown（\x1b[6~）。
-  /// 增量小于 4 行忽略（防误触）；每约 35 行算一页，单次事件最多发 4 个
-  /// 序列，防止快速拖拽洪泛 PTY。
+  ///
+  /// 原实现（“abs < 4 丢小增量，|abs/35|.ceil() 整页送出”）会被一次
+  /// 手扫产生十几个 PageUp，PTY/远端 pi 被排成队列延迟上卷；改为
+  /// “累计+节流冲刷”：回调只累加到 [_pendingScrollLines]（带方向
+  /// 符号，clamp 到 ±140 防积压失控），由 250ms 周期 timer 按当前
+  /// 待发页数冲刷（单次冲刷最多 2 页，≈8 页/秒上限，匹配远端 pi TUI
+  /// 渲染能力），手势结束时再补冲一次。
   void _onTerminalTouchScroll(int lines) {
-    final abs = lines.abs();
-    if (abs < 4) {
+    if (lines == 0) return;
+    // 累计到带方向符号的计数器，超过防积压上限则截断（保留方向）。
+    _pendingScrollLines = _scrollCoalescer
+        .clampPending(_pendingScrollLines + lines);
+    // 启动周期冲刷 timer（如果还没在跑）。多次连续增量复用同一个
+    // timer，避免反复创建/销毁。
+    _scrollFlushTimer ??= Timer.periodic(
+      _scrollFlushInterval,
+      (_) => _flushPendingScroll(),
+    );
+  }
+
+  /// 冲刷 [_pendingScrollLines]：按当前待发页数送出页序列，从计数器
+  /// 减掉已发送的页量。
+  void _flushPendingScroll() {
+    final pending = _pendingScrollLines;
+    if (pending == 0) {
+      _scrollFlushTimer?.cancel();
+      _scrollFlushTimer = null;
       return;
     }
-    final pages = (abs / 35).ceil();
-    final count = pages > 4 ? 4 : pages;
-    final sequence = lines > 0 ? '\x1b[5~' : '\x1b[6~';
-    widget.session.terminal.textInput(sequence * count);
+    final emit = _scrollCoalescer.periodicFlush(pending);
+    if (emit == 0) {
+      // 本周期内累计还不够 1 页，留给下个周期（或者手势结束补冲）。
+      return;
+    }
+    _emitScrollPages(emit);
+    _pendingScrollLines -= _scrollCoalescer.linesConsumedByFlush(emit);
+    if (_pendingScrollLines == 0) {
+      _scrollFlushTimer?.cancel();
+      _scrollFlushTimer = null;
+    }
+  }
+
+  /// 实际发送 [pages] 个同方向 PageUp/PageDown 序列到 PTY。
+  /// [pages] 为正发 PageUp（看更旧），为负发 PageDown（回新），
+  /// 0 不动作。
+  void _emitScrollPages(int pages) {
+    if (pages == 0) return;
+    final sequence = pages > 0 ? '\x1b[5~' : '\x1b[6~';
+    widget.session.terminal.textInput(sequence * pages.abs());
   }
 
   // ── build ──
