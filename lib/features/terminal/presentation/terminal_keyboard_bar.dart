@@ -24,6 +24,8 @@ class TerminalKeyboardBar extends StatelessWidget {
     this.composeActive = false,
     this.onToggleCompose,
     required this.herdrPrefixKey,
+    this.keyboardVisible = false,
+    this.onToggleKeyboard,
     super.key,
   });
 
@@ -38,6 +40,17 @@ class TerminalKeyboardBar extends StatelessWidget {
   final bool composeActive;
   final VoidCallback? onToggleCompose;
   final HerdrPrefixKey herdrPrefixKey;
+
+  /// Whether the on-screen keyboard is currently visible. Drives the icon
+  /// of the built-in [TerminalKeyboardAction.toggleKeyboard] key (show vs
+  /// hide). Computed by the page from
+  /// `MediaQuery.viewInsetsOf(context).bottom > 0`.
+  final bool keyboardVisible;
+
+  /// Optional callback for the built-in [TerminalKeyboardAction.toggleKeyboard]
+  /// action. When null, the action is rendered but does nothing on tap (it
+  /// only makes sense in pages that also pass [keyboardVisible]).
+  final VoidCallback? onToggleKeyboard;
 
   @override
   Widget build(BuildContext context) {
@@ -219,6 +232,23 @@ class TerminalKeyboardBar extends StatelessWidget {
         onSelected: _triggerSnippetMenuItem,
         items: _snippetMenuItems(),
       ),
+      TerminalKeyboardAction.toggleKeyboard => _Key(
+        // 'show keyboard' when the IME is hidden, 'hide keyboard' when it's
+        // visible. Icon flips so the affordance is unambiguous.
+        icon: keyboardVisible
+            ? Icons.keyboard_hide_rounded
+            : Icons.keyboard_rounded,
+        palette: palette,
+        brightness: brightness,
+        onPressed: onToggleKeyboard == null
+            ? null
+            : () {
+                onToggleKeyboard!();
+                // Don't refocus the terminal here: hiding the IME keeps the
+                // user's tap target on the TUI; showing it brings focus back
+                // naturally as part of the focus request inside the callback.
+              },
+      ),
       _ => _Key(
         label: action.label,
         palette: palette,
@@ -272,6 +302,7 @@ class TerminalKeyboardBar extends StatelessWidget {
       case TerminalKeyboardAction.herdrMenu:
       case TerminalKeyboardAction.snippets:
       case TerminalKeyboardAction.compose:
+      case TerminalKeyboardAction.toggleKeyboard:
         break;
     }
   }

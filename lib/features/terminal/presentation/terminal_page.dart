@@ -256,6 +256,24 @@ class _TerminalPageState extends State<TerminalPage> {
                         onToggleCompose: () =>
                             setState(() => _composeMode = !_composeMode),
                         herdrPrefixKey: activeSession.host.herdrPrefixKey,
+                        // Soft-keyboard visibility: viewInsets.bottom > 0 means
+                        // the IME is up on mobile. Drives the icon of the
+                        // built-in [TerminalKeyboardAction.toggleKeyboard] key.
+                        keyboardVisible:
+                            MediaQuery.viewInsetsOf(context).bottom > 0,
+                        onToggleKeyboard: () {
+                          // Toggle the IME: if it's visible, drop focus from
+                          // the text-input chain to dismiss it; if it's hidden,
+                          // request focus so the platform opens it. The
+                          // TerminalView's CustomTextEdit will then take care
+                          // of the actual input connection.
+                          final scope = FocusScope.of(context);
+                          if (MediaQuery.viewInsetsOf(context).bottom > 0) {
+                            scope.unfocus();
+                          } else {
+                            _focusNode.requestFocus();
+                          }
+                        },
                       ),
                   ],
                 ),

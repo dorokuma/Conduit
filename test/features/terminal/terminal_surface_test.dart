@@ -13,9 +13,10 @@ import '../../support/test_doubles.dart';
 // 直接劫持 onOutput 捕获发送字节即可断言。
 //
 // 方向符号（已实测固化）：conduit_vt 的 onTouchScroll 行增量在
-// 手指上滑（看更旧内容，dy < 0）时为**正**，手指下滑（回新内容，
-// dy > 0）时为**负**。上滑 → PageUp（\x1b[5~），下滑 → PageDown（\x1b[6~），
-// 与 _onTerminalTouchScroll 的实现约定一致。
+// 手指上滑（看新内容，dy < 0）时为**正**，手指下滑（回旧内容，
+// dy > 0）时为**负**。v1.4.30 方向翻转：上滑 → PageDown（\x1b[6~），
+// 下滑 → PageUp（\x1b[5~），与手机触控主流约定一致（手指上滑
+// 内容是“新的”）。
 const pageUp = '\x1b[5~';
 const pageDown = '\x1b[6~';
 const maxSequencesPerEvent = 4;
@@ -74,45 +75,45 @@ void main() {
   int countOf(String haystack, String needle) =>
       needle.allMatches(haystack).length;
 
-  testWidgets('up-swipe sends PageUp sequences only', (tester) async {
+  testWidgets('up-swipe sends PageDown sequences only', (tester) async {
     setUpHerdrController();
     await pumpSurface(tester);
 
-    // 上滑（看更旧内容）→ 应发 PageUp（\x1b[5~），不发 PageDown。
+    // 上滑（看新内容）→ 应发 PageDown（\x1b[6~），不发 PageUp。
     await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
     await tester.pump();
 
     expect(
-      countOf(captured.join(), pageUp),
+      countOf(captured.join(), pageDown),
       greaterThan(0),
-      reason: '上滑应发至少一个 PageUp 序列',
+      reason: '上滑应发至少一个 PageDown 序列',
     );
     expect(
-      countOf(captured.join(), pageDown),
+      countOf(captured.join(), pageUp),
       0,
-      reason: '上滑不应发 PageDown 序列',
+      reason: '上滑不应发 PageUp 序列',
     );
 
     await flushTimers(tester);
   });
 
-  testWidgets('down-swipe sends PageDown sequences only', (tester) async {
+  testWidgets('down-swipe sends PageUp sequences only', (tester) async {
     setUpHerdrController();
     await pumpSurface(tester);
 
-    // 下滑（回新内容）→ 应发 PageDown（\x1b[6~），不发 PageUp。
+    // 下滑（回旧内容）→ 应发 PageUp（\x1b[5~），不发 PageDown。
     await tester.drag(find.byType(TerminalSurface), const Offset(0, 300));
     await tester.pump();
 
     expect(
-      countOf(captured.join(), pageDown),
+      countOf(captured.join(), pageUp),
       greaterThan(0),
-      reason: '下滑应发至少一个 PageDown 序列',
+      reason: '下滑应发至少一个 PageUp 序列',
     );
     expect(
-      countOf(captured.join(), pageUp),
+      countOf(captured.join(), pageDown),
       0,
-      reason: '下滑不应发 PageUp 序列',
+      reason: '下滑不应发 PageDown 序列',
     );
 
     await flushTimers(tester);
@@ -139,9 +140,9 @@ void main() {
       );
     }
     expect(
-      countOf(captured.join(), pageDown),
+      countOf(captured.join(), pageUp),
       0,
-      reason: '上滑不应发 PageDown 序列',
+      reason: '上滑不应发 PageUp 序列',
     );
 
     await flushTimers(tester);

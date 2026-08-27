@@ -158,15 +158,18 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
 
   /// 触摸滚动回调，由 conduit_vt 的 [TerminalView.onTouchScroll] 转发
   /// 行数增量。方向约定与 conduit_vt onTouchScroll 一致（见
-  /// terminal_surface_test.dart 的方向断言）：手指上滑（看更旧内容）
-  /// delta 为正，手指下滑（回新内容）delta 为负。
+  /// terminal_surface_test.dart 的方向断言）：手指上滑（看新内容）
+  /// delta 为正，手指下滑（回旧内容）delta 为负。
   ///
   /// 把增量翻译成 PageUp/PageDown 序列发给 pty，由 herdr 决定滚动行为：
   /// - bash pane：herdr 自己持有 scrollback，直接吃掉 PageUp/PageDown 滚
   ///   自己的 scrollback；
   /// - pi pane：herdr 的 scrollback 为空，把 PageUp/PageDown 转发给 pane
   ///   里的 pi，由 pi 翻页到对话开头。
-  /// 上滑（看更旧）→ PageUp（\x1b[5~），下滑（回新）→ PageDown（\x1b[6~）。
+  /// 上滑（看新）→ PageDown（\x1b[6~），下滑（回旧）→ PageUp（\x1b[5~）。
+  /// 方向约定 v1.4.30 翻面（v1.4.29 之前为“手指上滑→PageUp”，
+  /// 倒置用户的阅读习惯；本版改为“手指上滑→PageDown”，匹配手机
+  /// 触控主流约定）。
   ///
   /// 原实现（“abs < 4 丢小增量，|abs/35|.ceil() 整页送出”）会被一次
   /// 手扫产生十几个 PageUp，PTY/远端 pi 被排成队列延迟上卷；改为
@@ -210,11 +213,13 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   /// 实际发送 [pages] 个同方向 PageUp/PageDown 序列到 PTY。
-  /// [pages] 为正发 PageUp（看更旧），为负发 PageDown（回新），
+  /// [pages] 为正发 PageDown（看新），为负发 PageUp（回旧），
   /// 0 不动作。
   void _emitScrollPages(int pages) {
     if (pages == 0) return;
-    final sequence = pages > 0 ? '\x1b[5~' : '\x1b[6~';
+    // v1.4.30 方向翻转：之前 pages>0（上滑）发 PageUp，现改为发
+    // PageDown 以匹配用户“手指上滑看新内容”的直觉。
+    final sequence = pages > 0 ? '\x1b[6~' : '\x1b[5~';
     widget.session.terminal.textInput(sequence * pages.abs());
   }
 
@@ -254,6 +259,11 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
               alwaysShowCursor: true,
               simulateScroll: !isHerdr,
               onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
+              // herdr 会话主要是 TUI 交互：点选词、点链接、点按钮。默认
+              // 点终端会弹软键盘，遮住 TUI、抢焦点。这里传 true 让
+              // TerminalView 跳过 _onTapUp 里的 focus + openInputConnection，
+              // 需要打字时走工具栏的键盘按钮唤出 IME。
+              keepKeyboardHiddenOnTap: isHerdr,
             );
           },
         ),
