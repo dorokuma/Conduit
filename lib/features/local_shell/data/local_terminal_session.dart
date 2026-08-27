@@ -40,12 +40,4 @@ class LocalTerminalSession implements SshTerminalSession {
     _process.kill();
     await _process.exitCode.then<void>((_) {}).catchError((_) {});
   }
-
-  @override
-  Future<String?> exec(
-    String command, {
-    Duration timeout = const Duration(seconds: 8),
-  }) {
-    throw UnsupportedError('exec is not supported by local shell sessions.');
-  }
 }

@@ -227,25 +227,14 @@ class FakeTerminalSession implements SshTerminalSession {
 
   @override
   Future<void> send(List<int> data) async {}
-
-  @override
-  Future<String?> exec(
-    String command, {
-    Duration timeout = const Duration(seconds: 8),
-  }) async => null;
 }
 
 class TrackableTerminalSession implements SshTerminalSession {
-  TrackableTerminalSession({this.completeAfterSends, this.execHandler});
+  TrackableTerminalSession({this.completeAfterSends});
 
   final int? completeAfterSends;
-
-  /// Optional scripted responder for [exec]; receives the command and the
-  /// requested timeout and returns the canned stdout (or null).
-  final Future<String?> Function(String command, Duration timeout)? execHandler;
   final Completer<void> _done = Completer<void>();
   final List<List<int>> sent = <List<int>>[];
-  final List<String> executedCommands = <String>[];
   int closeCount = 0;
 
   @override
@@ -276,16 +265,6 @@ class TrackableTerminalSession implements SshTerminalSession {
         !_done.isCompleted) {
       _done.complete();
     }
-  }
-
-  @override
-  Future<String?> exec(
-    String command, {
-    Duration timeout = const Duration(seconds: 8),
-  }) async {
-    executedCommands.add(command);
-    final handler = execHandler;
-    return handler == null ? null : handler(command, timeout);
   }
 }
 
@@ -335,12 +314,6 @@ class FakeRoamingTerminalSession
   Future<void> rehome() async {
     rehomeCount += 1;
   }
-
-  @override
-  Future<String?> exec(
-    String command, {
-    Duration timeout = const Duration(seconds: 8),
-  }) async => null;
 }
 
 class FakePredictiveTerminalSession
@@ -397,12 +370,6 @@ class FakePredictiveTerminalSession
     _inputState += 1;
     return _inputState;
   }
-
-  @override
-  Future<String?> exec(
-    String command, {
-    Duration timeout = const Duration(seconds: 8),
-  }) async => null;
 }
 
 class FakeNetworkConnectivity implements NetworkConnectivity {

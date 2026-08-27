@@ -66,13 +66,11 @@ class TerminalSessionController extends ChangeNotifier {
   TerminalEnterSequence _enterSequence = TerminalEnterSequence.cr;
   int _connectionGeneration = 0;
   int? _lastIosEnterOutputMs;
-  String? _herdrPaneId;
 
   static const _iosDuplicateEnterWindow = Duration(milliseconds: 80);
   static const _gracefulMoshCloseTimeout = Duration(milliseconds: 1500);
   static const _herdrDetachExitDelay = Duration(milliseconds: 150);
   static const _connectSnippetAfterHerdrDelay = Duration(milliseconds: 250);
-  static const _herdrExecPrefix = 'export PATH="\$HOME/.local/bin:\$PATH"; ';
 
   TerminalConnectionStatus get status => _status;
   String get title => host.name;
@@ -158,7 +156,6 @@ class TerminalSessionController extends ChangeNotifier {
         return;
       }
       _session = session;
-      _herdrPaneId = null;
 
       terminal.buffer.clear();
       terminal.buffer.setCursor(0, 0);
@@ -258,7 +255,6 @@ class TerminalSessionController extends ChangeNotifier {
 
     final session = _session;
     _session = null;
-    _herdrPaneId = null;
     try {
       await _closeRemoteMoshSession(session);
       await session?.close();
@@ -375,92 +371,6 @@ class TerminalSessionController extends ChangeNotifier {
   @visibleForTesting
   String? buildHerdrCommandForTesting() => _buildHerdrCommand();
 
-  /// Fetches the focused pane's recent plain-text history over a fresh SSH
-  /// exec channel. Returns the history split into lines (trailing blank lines
-  /// trimmed), or null when herdr is not configured, the transport does not
-  /// support exec, the command failed, or no focused pane could be resolved.
-  ///
-  /// The focused pane id is resolved on first use and cached until the
-  /// underlying session is replaced or dropped.
-  Future<List<String>?> fetchHerdrHistory({int lines = 800}) async {
-    if (!host.startHerdrOnConnect) {
-      return null;
-    }
-    final session = _session;
-    if (session == null) {
-      return null;
-    }
-    final sessionName = host.herdrSessionName.trim().isEmpty
-        ? defaultHerdrSessionName
-        : host.herdrSessionName.trim();
-    try {
-      final paneId =
-          _herdrPaneId ?? await _resolveFocusedHerdrPane(session, sessionName);
-      if (paneId == null) {
-        return null;
-      }
-      _herdrPaneId = paneId;
-      final output = await session.exec(
-        '${_herdrExecPrefix}herdr --session ${_herdrQuote(sessionName)} '
-        'pane read ${_herdrQuote(paneId)} --source recent-unwrapped '
-        '--lines $lines --format text',
-      );
-      if (output == null) {
-        return null;
-      }
-      final result = output.split('\n');
-      while (result.isNotEmpty && result.last.isEmpty) {
-        result.removeLast();
-      }
-      return result;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<String?> _resolveFocusedHerdrPane(
-    SshTerminalSession session,
-    String sessionName,
-  ) async {
-    final output = await session.exec(
-      '${_herdrExecPrefix}herdr --session ${_herdrQuote(sessionName)} '
-      'pane list',
-    );
-    if (output == null) {
-      return null;
-    }
-    return _parseFocusedHerdrPaneId(output);
-  }
-
-  String? _parseFocusedHerdrPaneId(String output) {
-    try {
-      final decoded = jsonDecode(output);
-      if (decoded is! Map<String, dynamic>) {
-        return null;
-      }
-      final result = decoded['result'];
-      if (result is! Map<String, dynamic>) {
-        return null;
-      }
-      final panes = result['panes'];
-      if (panes is! List) {
-        return null;
-      }
-      for (final pane in panes) {
-        if (pane is! Map<String, dynamic> || pane['focused'] != true) {
-          continue;
-        }
-        final paneId = pane['pane_id'];
-        if (paneId is String && paneId.isNotEmpty) {
-          return paneId;
-        }
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   String? _buildHerdrCommand() {
     if (!host.startHerdrOnConnect) {
       return null;
@@ -480,11 +390,6 @@ class TerminalSessionController extends ChangeNotifier {
   static String _shellQuote(String value) => _unquotedPath.hasMatch(value)
       ? value
       : "'${value.replaceAll("'", r"'\''")}'";
-
-  /// Always single-quotes [value] for the shell, escaping embedded quotes as
-  /// `'\''` so a hostile session/pane name cannot break out of the argument.
-  static String _herdrQuote(String value) =>
-      "'${value.replaceAll("'", r"'\''")}'";
 
   void _configureTerminal() {
     terminal.inputHandler = keyboard;
@@ -665,7 +570,6 @@ class TerminalSessionController extends ChangeNotifier {
     unawaited(_echoAckSubscription?.cancel());
     final session = _session;
     _session = null;
-    _herdrPaneId = null;
     if (session != null) {
       unawaited(session.close());
     }
