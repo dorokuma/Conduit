@@ -46,6 +46,17 @@ class _TerminalPageState extends State<TerminalPage> {
   final List<String> _composeHistory = <String>[];
   String _composeDraft = '';
 
+  // Per-session [GlobalKey<TerminalViewState>] for the toolbar keyboard
+  // button. The page needs to call show/hide on the *active* terminal's
+  // view state, but [TerminalView] is a child of [TerminalSurface] and
+  // lives inside an [IndexedStack] of surfaces. We allocate one key per
+  // session host id and pass it down so the surface forwards it to the
+  // underlying [TerminalView]. Keys are stable across rebuilds (the
+  // backing map is keyed by host id) so the active surface's view
+  // state is always addressable from the toolbar.
+  final Map<String, GlobalKey<TerminalViewState>> _terminalViewKeys =
+      <String, GlobalKey<TerminalViewState>>{};
+
   @override
   void initState() {
     super.initState();
@@ -198,6 +209,11 @@ class _TerminalPageState extends State<TerminalPage> {
                                 focusNode: session == activeSession
                                     ? _focusNode
                                     : null,
+                                terminalViewKey: _terminalViewKeys
+                                    .putIfAbsent(
+                                      session.host.id,
+                                      GlobalKey<TerminalViewState>.new,
+                                    ),
                               ),
                           ],
                         ),
@@ -262,16 +278,39 @@ class _TerminalPageState extends State<TerminalPage> {
                         keyboardVisible:
                             MediaQuery.viewInsetsOf(context).bottom > 0,
                         onToggleKeyboard: () {
-                          // Toggle the IME: if it's visible, drop focus from
-                          // the text-input chain to dismiss it; if it's hidden,
-                          // request focus so the platform opens it. The
-                          // TerminalView's CustomTextEdit will then take care
-                          // of the actual input connection.
-                          final scope = FocusScope.of(context);
+                          // Drive the soft keyboard through the active
+                          // [TerminalView] state rather than the focus
+                          // node: programmatic [FocusNode.requestFocus]
+                          // never produces a keyboard token, so the
+                          // focus listener inside the terminal would
+                          // silently no-op (the IME never opens).
+                          // [TerminalViewState.showSoftKeyboard] /
+                          // [hideSoftKeyboard] open the input
+                          // connection directly and unfocus on hide,
+                          // which is the only reliable path for a
+                          // toolbar button.
+                          final viewKey =
+                              _terminalViewKeys[activeSession.host.id];
+                          final view = viewKey?.currentState;
+                          if (view == null) return;
                           if (MediaQuery.viewInsetsOf(context).bottom > 0) {
-                            scope.unfocus();
+                            view.hideSoftKeyboard();
                           } else {
+                            // requestFocus is async: make sure the
+                            // focus node is in the chain before
+                            // asking the view to show, so subsequent
+                            // key events are delivered. The view
+                            // itself also schedules a post-frame
+                            // retry, so the show works even if the
+                            // focus transition hasn't completed by
+                            // the time we call.
                             _focusNode.requestFocus();
+                            view.showSoftKeyboard();
+                            WidgetsBinding.instance.addPostFrameCallback((
+                              _,
+                            ) {
+                              viewKey?.currentState?.showSoftKeyboard();
+                            });
                           }
                         },
                       ),

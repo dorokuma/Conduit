@@ -17,7 +17,7 @@
 // The new model is "accumulate + throttled flush":
 //   * The widget callback only adds to a signed pending-line counter
 //     (clamped to ±[pendingClamp] to keep it bounded).
-//   * Every 250ms the timer asks the coalescer how many full pages are
+//   * Every 160ms the timer asks the coalescer how many full pages are
 //     pending and emits at most [flushMaxPages] of them, leaving the
 //     remainder in the counter.
 //   * On gesture end, the widget asks the coalescer for the end-flush
@@ -30,18 +30,26 @@ class TouchScrollCoalescer {
   const TouchScrollCoalescer();
 
   /// Lines per PageUp/PageDown sequence (one "page" of scrollback).
-  static const int linesPerPage = 35;
+  /// Tuned to roughly half a phone-height of rows: small enough to keep
+  /// the visual scroll continuous under the finger, large enough that a
+  /// single page of jumps doesn't feel like a stutter.
+  static const int linesPerPage = 24;
 
   /// Maximum number of pages the periodic timer is allowed to emit per tick.
-  /// Keeps the remote side from being flooded: at 250ms tick, 2 pages
-  /// gives a sustained ≈ 8 pages/second cap, which matches the remote
-  /// pi TUI's render rate.
-  static const int flushMaxPages = 2;
+  /// At a 160ms tick, 3 pages gives a sustained 3*24/0.16 = 450 lines/s
+  /// cap, well below the flood line (the remote pi TUI only digests
+  /// ~50 line-level signals/s, so 450 lines/s in page-units is far under
+  /// any queuing cliff) and noticeably smoother than the previous 2-page
+  /// / 8-pages-per-second limit.
+  static const int flushMaxPages = 3;
 
   /// Pending line counter upper bound (signed). Prevents an unbounded
   /// drag (or a runaway timer) from accumulating thousands of pending
   /// lines and then blasting them in a burst at the next tick.
-  static const int pendingClamp = 140;
+  /// Lowered together with the smaller [linesPerPage] and shorter
+  /// tick interval: at 4× the new pages/second we don't need to
+  /// buffer four full screens worth of lag.
+  static const int pendingClamp = 96;
 
   /// Minimum pending line count at which a gesture-end flush should emit
   /// a final page. Aligned with the original "abs < 4" drop threshold so

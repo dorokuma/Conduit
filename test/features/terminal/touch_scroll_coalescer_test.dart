@@ -5,7 +5,7 @@
 // the captured output of a single `tester.drag` call. These tests pin
 // down the actual accumulation contract that the bug fix relies on:
 //   * small deltas that the old code dropped are now accumulated and
-//     produce a single page on end-flush (15 × 2 lines → 1 PageUp);
+//     produce a single page on end-flush (15 × 1 lines → 1 PageUp);
 //   * a large single delta emits at most [flushMaxPages] pages per
 //     periodic tick and leaves the remainder for the next tick (or the
 //     end flush);
@@ -46,9 +46,9 @@ void main() {
     });
 
     test('emits nothing when fewer than one full page is pending', () {
-      // 34 lines = just shy of one page.
-      expect(coalescer.periodicFlush(34), 0);
-      expect(coalescer.periodicFlush(-34), 0);
+      // one line short of a full page.
+      expect(coalescer.periodicFlush(TouchScrollCoalescer.linesPerPage - 1), 0);
+      expect(coalescer.periodicFlush(-(TouchScrollCoalescer.linesPerPage - 1)), 0);
     });
 
     test('emits exactly one page when pending equals one full page', () {
@@ -57,16 +57,29 @@ void main() {
     });
 
     test('caps a multi-page tick at flushMaxPages to avoid flooding', () {
-      // 100 lines / 35 = 2 pages, but flushMaxPages is 2, so emit 2.
-      expect(coalescer.periodicFlush(100), TouchScrollCoalescer.flushMaxPages);
-      // 200 lines would be 5 pages, but we cap at 2.
+      // Three full pages plus a sliver exceeds flushMaxPages, so the
+      // periodic flush caps at the configured maximum.
+      const lines = TouchScrollCoalescer.linesPerPage *
+              TouchScrollCoalescer.flushMaxPages +
+          1;
       expect(
-        coalescer.periodicFlush(200),
+        coalescer.periodicFlush(lines),
+        TouchScrollCoalescer.flushMaxPages,
+      );
+      // Five pages worth still caps at flushMaxPages.
+      expect(
+        coalescer.periodicFlush(
+          TouchScrollCoalescer.linesPerPage *
+              (TouchScrollCoalescer.flushMaxPages + 2),
+        ),
         TouchScrollCoalescer.flushMaxPages,
       );
       // Same on the negative side.
       expect(
-        coalescer.periodicFlush(-200),
+        coalescer.periodicFlush(
+          -(TouchScrollCoalescer.linesPerPage *
+              (TouchScrollCoalescer.flushMaxPages + 2)),
+        ),
         -TouchScrollCoalescer.flushMaxPages,
       );
     });
@@ -80,11 +93,11 @@ void main() {
     });
 
     test('emits one page when remainder crosses the threshold', () {
-      expect(coalescer.endFlush(4), 1);
-      expect(coalescer.endFlush(35), 1);
-      expect(coalescer.endFlush(100), 1);
-      expect(coalescer.endFlush(-4), -1);
-      expect(coalescer.endFlush(-100), -1);
+      expect(coalescer.endFlush(TouchScrollCoalescer.endFlushThreshold), 1);
+      expect(coalescer.endFlush(TouchScrollCoalescer.linesPerPage), 1);
+      expect(coalescer.endFlush(TouchScrollCoalescer.pendingClamp), 1);
+      expect(coalescer.endFlush(-TouchScrollCoalescer.endFlushThreshold), -1);
+      expect(coalescer.endFlush(-TouchScrollCoalescer.pendingClamp), -1);
     });
 
     test('emits nothing when the counter is already zero', () {
@@ -92,48 +105,57 @@ void main() {
     });
   });
 
-  group('15 × 2-line accumulation: simulates a slow finger drag', () {
-    // Reproduces the bug scenario: 15 consecutive small deltas of 2 lines
-    // each (every single one is below the old `abs < 4` drop threshold).
-    // Under the old implementation every one of them was dropped, so no
-    // PageUp was ever sent. With the new logic the pending counter ends
-    // the gesture at 30, well above endFlushThreshold (4), so the
-    // end-flush emits exactly one PageUp.
-    test('15 small +2 deltas end up as a single PageUp via end flush', () {
+  group('15 × 1-line accumulation: simulates a slow finger drag', () {
+    // Reproduces the bug scenario: 15 consecutive small deltas of 1
+    // line each (every single one is below the old `abs < 4` drop
+    // threshold). Under the old implementation every one of them
+    // was dropped, so no PageUp was ever sent. With the new logic
+    // the pending counter ends the gesture at 15 — below
+    // [linesPerPage] but well above [endFlushThreshold] — so the
+    // periodic flush stays silent and the end-flush emits exactly
+    // one PageUp.
+    test('15 small +1 deltas end up as a single PageUp via end flush', () {
+      // Simulates a slow finger drag that never accumulates a full
+      // page: 15 consecutive +1-line deltas. Under the old
+      // implementation each was dropped (|delta| < 4), so no PageUp
+      // was ever sent. With the new logic the pending counter ends
+      // the gesture below [linesPerPage] (so the periodic flush
+      // emits nothing yet) but well above [endFlushThreshold], so the
+      // end-flush emits exactly one page.
       var pending = 0;
       for (var i = 0; i < 15; i++) {
-        pending = coalescer.clampPending(pending + 2);
+        pending = coalescer.clampPending(pending + 1);
       }
-      expect(pending, 30);
-      // The 250ms timer wouldn't have fired enough to flush yet, so the
-      // only emit comes from the gesture-end flush.
+      expect(pending, 15);
+      // Pending is between endFlushThreshold and linesPerPage, so the
+      // periodic flush is silent but the end flush fires.
+      expect(
+        pending.abs() < TouchScrollCoalescer.linesPerPage,
+        isTrue,
+      );
       expect(coalescer.periodicFlush(pending), 0);
       expect(coalescer.endFlush(pending), 1);
     });
 
-    test('100-line single delta caps at flushMaxPages per tick', () {
-      // A single onTouchScroll callback with 100 lines: the periodic
-      // flush must cap at flushMaxPages (2), not emit 3 pages (which
-      // is what the old ceil(100/35)=3 code would have done in one go).
-      const pending = 100;
+    test('a flood of pendingClamp lines caps at flushMaxPages per tick', () {
+      // A single onTouchScroll callback that saturates the pending
+      // counter: the periodic flush must cap at flushMaxPages, not emit
+      // pendingClamp / linesPerAge full pages in one go.
+      const pending = TouchScrollCoalescer.pendingClamp;
       final firstTick = coalescer.periodicFlush(pending);
       expect(firstTick, TouchScrollCoalescer.flushMaxPages);
 
-      // The remainder (100 - 2*35 = 30 lines) is left for the next
-      // periodic tick or the end flush. 30 lines < 35 lines/page, so
-      // the next periodic tick still emits nothing, but the end flush
-      // emits the final 1 page.
+      // The remainder is left for the next periodic tick or the end
+      // flush. The end flush emits the final page as long as the
+      // remainder crosses endFlushThreshold.
       final remaining = pending - coalescer.linesConsumedByFlush(firstTick);
-      expect(remaining, 30);
-      expect(coalescer.periodicFlush(remaining), 0);
       expect(coalescer.endFlush(remaining), 1);
     });
 
     test('a 500-line flood is bounded across multiple ticks', () {
       // The previous implementation would have sent ceil(500/35) = 15
       // PageUps in a single tick. The new model splits that across
-      // 4 periodic ticks (2 + 2 + 2 + 1) plus 1 end-flush, never
-      // exceeding flushMaxPages per tick.
+      // periodic ticks (each capped at flushMaxPages) plus 1 end-flush.
       var pending = 500;
       final perTickEmits = <int>[];
       while (pending.abs() >=
@@ -153,12 +175,11 @@ void main() {
           lessThanOrEqualTo(TouchScrollCoalescer.flushMaxPages),
         );
       }
-      // The total page count is roughly 500/35 ≈ 14, well below the
-      // unbounded flood the old code would have produced when applied
-      // per-event.
+      // The total page count is roughly pending/24 with the new tuning;
+      // the upper bound stays well under an unbounded flood.
       expect(
         perTickEmits.fold<int>(0, (acc, e) => acc + e.abs()),
-        inInclusiveRange(13, 16),
+        inInclusiveRange(18, 23),
       );
     });
   });

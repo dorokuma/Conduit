@@ -17,6 +17,7 @@ class TerminalSurface extends StatefulWidget {
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
     required this.focusNode,
+    this.terminalViewKey,
     super.key,
   });
 
@@ -30,15 +31,34 @@ class TerminalSurface extends StatefulWidget {
   final bool terminalMouseInput;
   final FocusNode? focusNode;
 
+  /// Optional externally-owned key for the inner [TerminalView] state.
+  /// Pass this when the parent needs to call
+  /// [TerminalViewState.showSoftKeyboard] / [hideSoftKeyboard] (e.g. the
+  /// toolbar keyboard button) — otherwise the surface allocates its own.
+  final GlobalKey<TerminalViewState>? terminalViewKey;
+
   @override
-  State<TerminalSurface> createState() => _TerminalSurfaceState();
+  State<TerminalSurface> createState() => TerminalSurfaceState();
 }
 
-class _TerminalSurfaceState extends State<TerminalSurface> {
+/// Public state for [TerminalSurface] so the page (and tests) can
+/// reach the soft-keyboard show/hide methods without depending on a
+/// private name.
+class TerminalSurfaceState extends State<TerminalSurface> {
   final _pinchPointers = <int, Offset>{};
   double? _pinchStartDistance;
   double? _pinchStartFontSize;
   late final TerminalController _terminalController;
+
+  // Allows the page to drive the toolbar keyboard button: the page has
+  // no direct reference to the [TerminalView] state, so it calls
+  // [showSoftKeyboard] / [hideSoftKeyboard] on this State and we forward
+  // to the underlying [TerminalViewState]. The surface allocates its own
+  // key by default; the parent may pass in [widget.terminalViewKey] to
+  // share a single key across surfaces (one per session) so the toolbar
+  // can always reach the *active* terminal's view state.
+  late final GlobalKey<TerminalViewState> _terminalViewKey =
+      widget.terminalViewKey ?? GlobalKey<TerminalViewState>();
 
   // ── Touch-scroll coalescing ──
   // conduit_vt 转发给我们的 onTouchScroll 回调，在原实现里 “1–3 行” 的
@@ -51,11 +71,11 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   // 修复：纯逻辑抽出到 [TouchScrollCoalescer]（无副作用、可单元
   // 测试），Widget 只负责累计行增量 + 周期冲刷 timer + 手势结束
   // 补冲。回调只累加到 [_pendingScrollLines]（带方向符号，clamp
-  // 到 ±140 防积压失控），由 250ms 周期 timer 按当前待发页数冲刷
-  // （单次冲刷最多 2 页，≈8 页/秒上限，匹配远端 pi TUI 渲染能力），
+  // 到 ±96 防积压失控），由 160ms 周期 timer 按当前待发页数冲刷
+  // （单次冲刷最多 3 页，≈450 行/秒上限，远低于远端 pi TUI 洪泛线），
   // 手势结束时再补冲一次。
   static const TouchScrollCoalescer _scrollCoalescer = TouchScrollCoalescer();
-  static const Duration _scrollFlushInterval = Duration(milliseconds: 250);
+  static const Duration _scrollFlushInterval = Duration(milliseconds: 160);
   Timer? _scrollFlushTimer;
   int _pendingScrollLines = 0; // 带方向符号的累计行数
 
@@ -174,9 +194,9 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   /// 原实现（“abs < 4 丢小增量，|abs/35|.ceil() 整页送出”）会被一次
   /// 手扫产生十几个 PageUp，PTY/远端 pi 被排成队列延迟上卷；改为
   /// “累计+节流冲刷”：回调只累加到 [_pendingScrollLines]（带方向
-  /// 符号，clamp 到 ±140 防积压失控），由 250ms 周期 timer 按当前
-  /// 待发页数冲刷（单次冲刷最多 2 页，≈8 页/秒上限，匹配远端 pi TUI
-  /// 渲染能力），手势结束时再补冲一次。
+  /// 符号，clamp 到 ±96 防积压失控），由 160ms 周期 timer 按当前
+  /// 待发页数冲刷（单次冲刷最多 3 页，≈450 行/秒上限，远低于远端
+  /// pi TUI 洪泛线），手势结束时再补冲一次。
   void _onTerminalTouchScroll(int lines) {
     if (lines == 0) return;
     // 累计到带方向符号的计数器，超过防积压上限则截断（保留方向）。
@@ -241,6 +261,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
             final overlays = widget.session.overlays;
             return TerminalView(
               widget.session.terminal,
+              key: _terminalViewKey,
               controller: _terminalController,
               focusNode: widget.focusNode,
               autofocus: widget.focusNode != null,
@@ -269,5 +290,39 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
         ),
       ),
     );
+  }
+
+  // ── Soft-keyboard API (called by the page's toolbar toggle) ──
+
+  /// Show the soft keyboard for this terminal.
+  ///
+  /// Forwards to [TerminalViewState.showSoftKeyboard], which opens the
+  /// input connection regardless of the [FocusNode.consumeKeyboardToken]
+  /// path — needed because the toolbar button's programmatic
+  /// [FocusNode.requestFocus] never produces a token, so the focus
+  /// listener inside the terminal would silently no-op. Schedules a
+  /// post-frame retry so the show also works when the focus node is
+  /// not yet focused on the first tap (focus changes are async).
+  void showSoftKeyboard() {
+    final view = _terminalViewKey.currentState;
+    if (view == null) return;
+    view.showSoftKeyboard();
+    // requestFocus() is async: if the focus node was not yet focused
+    // when showSoftKeyboard() ran, the freshly focused node may need a
+    // second pass once the focus chain has settled. The retry is a
+    // no-op when the keyboard is already open, so the cost is bounded.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _terminalViewKey.currentState?.showSoftKeyboard();
+    });
+  }
+
+  /// Hide the soft keyboard and drop terminal focus.
+  ///
+  /// Forwards to [TerminalViewState.hideSoftKeyboard], which closes the
+  /// input connection directly and unfocuses the focus node so a later
+  /// tap on the terminal does not immediately re-open the IME.
+  void hideSoftKeyboard() {
+    _terminalViewKey.currentState?.hideSoftKeyboard();
   }
 }
