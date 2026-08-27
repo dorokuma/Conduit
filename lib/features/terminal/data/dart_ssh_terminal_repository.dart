@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:conduit/core/app_failure.dart';
@@ -86,5 +87,27 @@ class DartSshTerminalSession implements SshTerminalSession {
     shell.close();
     client.close();
     await client.done;
+  }
+
+  @override
+  Future<String?> exec(
+    String command, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (_closed) {
+      return null;
+    }
+    SSHSession? session;
+    try {
+      session = await client.execute(command).timeout(timeout);
+      final bytes = <int>[];
+      await session.stdout.forEach(bytes.addAll).timeout(timeout);
+      await session.done.timeout(timeout);
+      return utf8.decode(bytes, allowMalformed: true);
+    } catch (_) {
+      return null;
+    } finally {
+      session?.close();
+    }
   }
 }

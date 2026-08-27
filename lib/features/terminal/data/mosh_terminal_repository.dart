@@ -154,4 +154,12 @@ class MoshTerminalSession
     await _session.close();
     await _stderr.close();
   }
+
+  @override
+  Future<String?> exec(
+    String command, {
+    Duration timeout = const Duration(seconds: 8),
+  }) {
+    throw UnsupportedError('exec is not supported by mosh sessions.');
+  }
 }
