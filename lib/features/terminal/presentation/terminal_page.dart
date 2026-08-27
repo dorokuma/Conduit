@@ -36,6 +36,12 @@ class TerminalPage extends StatefulWidget {
 
 class _TerminalPageState extends State<TerminalPage> {
   final _focusNode = FocusNode();
+  // Exposes the underlying TerminalView so the keyboard toolbar button
+  // can call the dedicated show/hide entry points (which bypass the
+  // [FocusNode.consumeKeyboardToken] race that makes programmatic
+  // `requestFocus` unreliable on Android). One per-session is enough:
+  // the toolbar re-renders against the active session below.
+  final _terminalViewKey = GlobalKey<TerminalViewState>();
   TerminalSessionController? _focusedSession;
   bool _fullscreen = false;
   bool _composeMode = false;
@@ -198,6 +204,9 @@ class _TerminalPageState extends State<TerminalPage> {
                                 focusNode: session == activeSession
                                     ? _focusNode
                                     : null,
+                                terminalViewKey: session == activeSession
+                                    ? _terminalViewKey
+                                    : null,
                               ),
                           ],
                         ),
@@ -262,16 +271,49 @@ class _TerminalPageState extends State<TerminalPage> {
                         keyboardVisible:
                             MediaQuery.viewInsetsOf(context).bottom > 0,
                         onToggleKeyboard: () {
-                          // Toggle the IME: if it's visible, drop focus from
-                          // the text-input chain to dismiss it; if it's hidden,
-                          // request focus so the platform opens it. The
-                          // TerminalView's CustomTextEdit will then take care
-                          // of the actual input connection.
-                          final scope = FocusScope.of(context);
+                          // Toggle the IME through TerminalView's
+                          // dedicated show/hide entry points. Going
+                          // through [FocusScope.unfocus] /
+                          // [FocusNode.requestFocus] directly is
+                          // unreliable: a programmatic `requestFocus`
+                          // does not hand out a keyboard token, so
+                          // CustomTextEdit's focus listener would
+                          // silently no-op (the "tap the keyboard
+                          // button, nothing happens" bug). And
+                          // `unfocus` alone does not always close the
+                          // input connection.
+                          final view = _terminalViewKey.currentState;
+                          if (view == null) {
+                            // The view has not mounted yet (or has been
+                            // disposed). Fall back to the previous
+                            // behavior so the toolbar is still
+                            // functional while the session is opening.
+                            final scope = FocusScope.of(context);
+                            if (MediaQuery.viewInsetsOf(context).bottom > 0) {
+                              scope.unfocus();
+                            } else {
+                              _focusNode.requestFocus();
+                            }
+                            return;
+                          }
                           if (MediaQuery.viewInsetsOf(context).bottom > 0) {
-                            scope.unfocus();
+                            view.hideSoftKeyboard();
                           } else {
+                            // Two-step: ensure focus first so the
+                            // input connection's show() call is
+                            // accepted by the platform, then ask the
+                            // view to open the keyboard. If the focus
+                            // is still racing the next frame,
+                            // addPostFrameCallback retries the open
+                            // path which is itself idempotent.
                             _focusNode.requestFocus();
+                            view.showSoftKeyboard();
+                            WidgetsBinding.instance.addPostFrameCallback((
+                              _,
+                            ) {
+                              if (!mounted) return;
+                              _terminalViewKey.currentState?.showSoftKeyboard();
+                            });
                           }
                         },
                       ),

@@ -17,6 +17,7 @@ class TerminalSurface extends StatefulWidget {
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
     required this.focusNode,
+    this.terminalViewKey,
     super.key,
   });
 
@@ -29,6 +30,14 @@ class TerminalSurface extends StatefulWidget {
   final bool predictiveEchoEnabled;
   final bool terminalMouseInput;
   final FocusNode? focusNode;
+
+  /// Optional key that exposes the underlying [TerminalViewState] so
+  /// the page can drive the soft keyboard toggle without going
+  /// through a stale focus chain. When null, the toolbar's keyboard
+  /// button can still call the global focus node, but the IME open
+  /// path will be unreliable on Android (programmatic `requestFocus`
+  /// does not produce a keyboard token).
+  final GlobalKey<TerminalViewState>? terminalViewKey;
 
   @override
   State<TerminalSurface> createState() => _TerminalSurfaceState();
@@ -51,11 +60,15 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   // 修复：纯逻辑抽出到 [TouchScrollCoalescer]（无副作用、可单元
   // 测试），Widget 只负责累计行增量 + 周期冲刷 timer + 手势结束
   // 补冲。回调只累加到 [_pendingScrollLines]（带方向符号，clamp
-  // 到 ±140 防积压失控），由 250ms 周期 timer 按当前待发页数冲刷
-  // （单次冲刷最多 2 页，≈8 页/秒上限，匹配远端 pi TUI 渲染能力），
+  // 到 ±96 防积压失控），由 160ms 周期 timer 按当前待发页数冲刷
+  // （单次冲刷最多 3 页，≈18 页/秒上限，匹配远端 pi TUI 渲染能力），
   // 手势结束时再补冲一次。
   static const TouchScrollCoalescer _scrollCoalescer = TouchScrollCoalescer();
-  static const Duration _scrollFlushInterval = Duration(milliseconds: 250);
+  // v1.4.31: 250ms → 160ms. Faster first response to a finger flick
+  // (the first half-page arrives ~90ms sooner) without changing the
+  // per-tick page cap. The remote pi TUI is comfortably able to keep
+  // up at the resulting peak rate (~18 pages/s).
+  static const Duration _scrollFlushInterval = Duration(milliseconds: 160);
   Timer? _scrollFlushTimer;
   int _pendingScrollLines = 0; // 带方向符号的累计行数
 
@@ -174,8 +187,8 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   /// 原实现（“abs < 4 丢小增量，|abs/35|.ceil() 整页送出”）会被一次
   /// 手扫产生十几个 PageUp，PTY/远端 pi 被排成队列延迟上卷；改为
   /// “累计+节流冲刷”：回调只累加到 [_pendingScrollLines]（带方向
-  /// 符号，clamp 到 ±140 防积压失控），由 250ms 周期 timer 按当前
-  /// 待发页数冲刷（单次冲刷最多 2 页，≈8 页/秒上限，匹配远端 pi TUI
+  /// 符号，clamp 到 ±96 防积压失控），由 160ms 周期 timer 按当前
+  /// 待发页数冲刷（单次冲刷最多 3 页，≈18 页/秒上限，匹配远端 pi TUI
   /// 渲染能力），手势结束时再补冲一次。
   void _onTerminalTouchScroll(int lines) {
     if (lines == 0) return;
@@ -241,6 +254,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
             final overlays = widget.session.overlays;
             return TerminalView(
               widget.session.terminal,
+              key: widget.terminalViewKey,
               controller: _terminalController,
               focusNode: widget.focusNode,
               autofocus: widget.focusNode != null,

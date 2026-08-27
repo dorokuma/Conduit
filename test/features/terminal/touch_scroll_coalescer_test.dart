@@ -46,9 +46,10 @@ void main() {
     });
 
     test('emits nothing when fewer than one full page is pending', () {
-      // 34 lines = just shy of one page.
-      expect(coalescer.periodicFlush(34), 0);
-      expect(coalescer.periodicFlush(-34), 0);
+      // Just shy of one full page: linesPerPage - 1.
+      const justShort = TouchScrollCoalescer.linesPerPage - 1;
+      expect(coalescer.periodicFlush(justShort), 0);
+      expect(coalescer.periodicFlush(-justShort), 0);
     });
 
     test('emits exactly one page when pending equals one full page', () {
@@ -57,16 +58,17 @@ void main() {
     });
 
     test('caps a multi-page tick at flushMaxPages to avoid flooding', () {
-      // 100 lines / 35 = 2 pages, but flushMaxPages is 2, so emit 2.
-      expect(coalescer.periodicFlush(100), TouchScrollCoalescer.flushMaxPages);
-      // 200 lines would be 5 pages, but we cap at 2.
+      // A pending value well above the cap: linesPerPage * (flushMaxPages + 1)
+      // pages worth, so the cap is definitely the limiting factor.
+      const overTheCap = TouchScrollCoalescer.linesPerPage *
+          (TouchScrollCoalescer.flushMaxPages + 1);
       expect(
-        coalescer.periodicFlush(200),
+        coalescer.periodicFlush(overTheCap),
         TouchScrollCoalescer.flushMaxPages,
       );
-      // Same on the negative side.
+      // And the same on the negative side.
       expect(
-        coalescer.periodicFlush(-200),
+        coalescer.periodicFlush(-overTheCap),
         -TouchScrollCoalescer.flushMaxPages,
       );
     });
@@ -80,11 +82,24 @@ void main() {
     });
 
     test('emits one page when remainder crosses the threshold', () {
-      expect(coalescer.endFlush(4), 1);
-      expect(coalescer.endFlush(35), 1);
-      expect(coalescer.endFlush(100), 1);
-      expect(coalescer.endFlush(-4), -1);
-      expect(coalescer.endFlush(-100), -1);
+      expect(coalescer.endFlush(TouchScrollCoalescer.endFlushThreshold), 1);
+      expect(
+        coalescer.endFlush(TouchScrollCoalescer.linesPerPage),
+        1,
+      );
+      expect(
+        coalescer.endFlush(
+          TouchScrollCoalescer.flushMaxPages * TouchScrollCoalescer.linesPerPage,
+        ),
+        1,
+      );
+      expect(coalescer.endFlush(-TouchScrollCoalescer.endFlushThreshold), -1);
+      expect(
+        coalescer.endFlush(
+          -TouchScrollCoalescer.flushMaxPages * TouchScrollCoalescer.linesPerPage,
+        ),
+        -1,
+      );
     });
 
     test('emits nothing when the counter is already zero', () {
@@ -100,40 +115,61 @@ void main() {
     // the gesture at 30, well above endFlushThreshold (4), so the
     // end-flush emits exactly one PageUp.
     test('15 small +2 deltas end up as a single PageUp via end flush', () {
+      // Drive the pending counter with sub-threshold deltas, accumulating
+      // up to a value between endFlushThreshold and linesPerPage: in that
+      // band the periodic timer would not have flushed yet (so we can
+      // assert the timer is not the source of the page) and the
+      // end-flush emits exactly one page. Keep the total under
+      // linesPerPage so the assertion is meaningful; pick a value well
+      // above endFlushThreshold so a single +2 delta crossing the
+      // threshold cannot accidentally fire earlier.
+      const smallDelta = 2;
+      const smallSteps = 5;
       var pending = 0;
-      for (var i = 0; i < 15; i++) {
-        pending = coalescer.clampPending(pending + 2);
+      for (var i = 0; i < smallSteps; i++) {
+        pending = coalescer.clampPending(pending + smallDelta);
       }
-      expect(pending, 30);
-      // The 250ms timer wouldn't have fired enough to flush yet, so the
-      // only emit comes from the gesture-end flush.
+      expect(pending, smallDelta * smallSteps);
+      expect(pending, greaterThan(TouchScrollCoalescer.endFlushThreshold));
+      expect(pending, lessThan(TouchScrollCoalescer.linesPerPage));
+      // The 160ms timer would not flush a partial page in a single tick,
+      // so the only emit comes from the gesture-end flush.
       expect(coalescer.periodicFlush(pending), 0);
       expect(coalescer.endFlush(pending), 1);
     });
 
     test('100-line single delta caps at flushMaxPages per tick', () {
       // A single onTouchScroll callback with 100 lines: the periodic
-      // flush must cap at flushMaxPages (2), not emit 3 pages (which
-      // is what the old ceil(100/35)=3 code would have done in one go).
+      // flush must cap at flushMaxPages, not emit ceil(100/linesPerPage)
+      // pages in one go (which is what the old code did per event).
       const pending = 100;
       final firstTick = coalescer.periodicFlush(pending);
       expect(firstTick, TouchScrollCoalescer.flushMaxPages);
 
-      // The remainder (100 - 2*35 = 30 lines) is left for the next
-      // periodic tick or the end flush. 30 lines < 35 lines/page, so
-      // the next periodic tick still emits nothing, but the end flush
-      // emits the final 1 page.
+      // The remainder is left for the next periodic tick or the end
+      // flush. Use the constants rather than hard-coded line counts so
+      // this assertion survives future tuning of linesPerPage /
+      // flushMaxPages.
       final remaining = pending - coalescer.linesConsumedByFlush(firstTick);
-      expect(remaining, 30);
-      expect(coalescer.periodicFlush(remaining), 0);
-      expect(coalescer.endFlush(remaining), 1);
+      // With linesPerPage=24 and flushMaxPages=3, the cap is hit:
+      // 100 - 3 * 24 = 28. The next periodic tick produces 1 more page
+      // (28 / 24 = 1, under the cap) and the end flush emits 1 final
+      // page from the residual 4 lines.
+      expect(
+        remaining,
+        100 - TouchScrollCoalescer.flushMaxPages * TouchScrollCoalescer.linesPerPage,
+      );
+      expect(coalescer.periodicFlush(remaining), 1);
+      final afterSecond = remaining -
+          coalescer.linesConsumedByFlush(coalescer.periodicFlush(remaining));
+      expect(coalescer.endFlush(afterSecond), 1);
     });
 
     test('a 500-line flood is bounded across multiple ticks', () {
       // The previous implementation would have sent ceil(500/35) = 15
       // PageUps in a single tick. The new model splits that across
-      // 4 periodic ticks (2 + 2 + 2 + 1) plus 1 end-flush, never
-      // exceeding flushMaxPages per tick.
+      // multiple periodic ticks (each capped at flushMaxPages) plus 1
+      // end-flush, never exceeding flushMaxPages per tick.
       var pending = 500;
       final perTickEmits = <int>[];
       while (pending.abs() >=
@@ -153,12 +189,13 @@ void main() {
           lessThanOrEqualTo(TouchScrollCoalescer.flushMaxPages),
         );
       }
-      // The total page count is roughly 500/35 ≈ 14, well below the
-      // unbounded flood the old code would have produced when applied
-      // per-event.
+      // The total page count is roughly 500 / linesPerPage = 21, well
+      // below the unbounded flood the old code would have produced
+      // when applied per-event.
+      const expectedTotal = 500 ~/ TouchScrollCoalescer.linesPerPage + 1;
       expect(
         perTickEmits.fold<int>(0, (acc, e) => acc + e.abs()),
-        inInclusiveRange(13, 16),
+        inInclusiveRange(expectedTotal - 1, expectedTotal + 1),
       );
     });
   });
