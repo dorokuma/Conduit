@@ -71,6 +71,11 @@ fi
 
 git -C "$TERMUX_PACKAGES_DIR" fetch --tags --force origin "$TERMUX_PACKAGES_COMMIT" || true
 git -C "$TERMUX_PACKAGES_DIR" checkout -f "$TERMUX_PACKAGES_COMMIT"
+
+# busybox.net is intermittently unreachable from CI runners; use the
+# byte-identical buildroot.net mirror (SHA256 stays pinned by the recipe).
+sed -i 's#https://busybox.net/downloads/#https://sources.buildroot.net/busybox/#' \
+  "$TERMUX_PACKAGES_DIR/packages/busybox/build.sh"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$TERMUX_PACKAGES_DIR" show -s --format=%ct "$TERMUX_PACKAGES_COMMIT")}"
 export TZ=UTC
 export LC_ALL=C
