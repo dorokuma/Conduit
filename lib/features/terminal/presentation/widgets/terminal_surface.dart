@@ -37,10 +37,6 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   double? _pinchStartFontSize;
   late final TerminalController _terminalController;
 
-  /// Cap for the number of scroll key sequences sent per touch scroll event,
-  /// so a fast fling cannot flood the PTY.
-  static const _maxScrollSequencesPerEvent = 30;
-
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
         ? const PointerInputs({PointerInput.tap})
@@ -122,26 +118,29 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     return points.length < 2 ? 0 : (points[0] - points[1]).distance;
   }
 
-  // ── herdr 滚动映射（pi 原生渲染滚动键序列）──
+  // ── herdr 滚动映射（PageUp/PageDown 双场景）──
 
-  /// 备用屏触摸滚动回调，由 conduit_vt 的 [TerminalView.onTouchScroll] 转发
+  /// 触摸滚动回调，由 conduit_vt 的 [TerminalView.onTouchScroll] 转发
   /// 行数增量。方向约定与 conduit_vt onTouchScroll 一致（见
   /// terminal_surface_test.dart 的方向断言）：手指上滑（看更旧内容）
   /// delta 为正，手指下滑（回新内容）delta 为负。
   ///
-  /// 把增量翻译成 pi 的滚动键序列发给 pty，让 pi 自己滚动原生渲染的
-  /// alt screen（hdr pane 的 scrollback 由 pi 持有，本端不可读）：
-  /// 上滑 → lineUp（\x1b[1;7A），下滑 → lineDown（\x1b[1;7B）。
-  /// 单次事件最多发 [_maxScrollSequencesPerEvent] 个序列，防止快速
-  /// 拖拽洪泛 PTY。
+  /// 把增量翻译成 PageUp/PageDown 序列发给 pty，由 herdr 决定滚动行为：
+  /// - bash pane：herdr 自己持有 scrollback，直接吃掉 PageUp/PageDown 滚
+  ///   自己的 scrollback；
+  /// - pi pane：herdr 的 scrollback 为空，把 PageUp/PageDown 转发给 pane
+  ///   里的 pi，由 pi 翻页到对话开头。
+  /// 上滑（看更旧）→ PageUp（\x1b[5~），下滑（回新）→ PageDown（\x1b[6~）。
+  /// 增量小于 4 行忽略（防误触）；每约 35 行算一页，单次事件最多发 4 个
+  /// 序列，防止快速拖拽洪泛 PTY。
   void _onTerminalTouchScroll(int lines) {
-    if (lines == 0) {
+    final abs = lines.abs();
+    if (abs < 4) {
       return;
     }
-    final count = lines.abs() > _maxScrollSequencesPerEvent
-        ? _maxScrollSequencesPerEvent
-        : lines.abs();
-    final sequence = lines > 0 ? '\x1b[1;7A' : '\x1b[1;7B';
+    final pages = (abs / 35).ceil();
+    final count = pages > 4 ? 4 : pages;
+    final sequence = lines > 0 ? '\x1b[5~' : '\x1b[6~';
     widget.session.terminal.textInput(sequence * count);
   }
 

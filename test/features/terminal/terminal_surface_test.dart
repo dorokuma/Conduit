@@ -14,11 +14,11 @@ import '../../support/test_doubles.dart';
 //
 // 方向符号（已实测固化）：conduit_vt 的 onTouchScroll 行增量在
 // 手指上滑（看更旧内容，dy < 0）时为**正**，手指下滑（回新内容，
-// dy > 0）时为**负**。上滑 → lineUp（\x1b[1;7A），下滑 → lineDown（\x1b[1;7B），
+// dy > 0）时为**负**。上滑 → PageUp（\x1b[5~），下滑 → PageDown（\x1b[6~），
 // 与 _onTerminalTouchScroll 的实现约定一致。
-const lineUp = '\x1b[1;7A';
-const lineDown = '\x1b[1;7B';
-const maxSequencesPerEvent = 30;
+const pageUp = '\x1b[5~';
+const pageDown = '\x1b[6~';
+const maxSequencesPerEvent = 4;
 
 void main() {
   late TerminalSessionController controller;
@@ -74,74 +74,74 @@ void main() {
   int countOf(String haystack, String needle) =>
       needle.allMatches(haystack).length;
 
-  testWidgets('up-swipe sends lineUp sequences only', (tester) async {
+  testWidgets('up-swipe sends PageUp sequences only', (tester) async {
     setUpHerdrController();
     await pumpSurface(tester);
 
-    // 上滑（看更旧内容）→ 应发 lineUp（\x1b[1;7A），不发 lineDown。
+    // 上滑（看更旧内容）→ 应发 PageUp（\x1b[5~），不发 PageDown。
     await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
     await tester.pump();
 
     expect(
-      countOf(captured.join(), lineUp),
+      countOf(captured.join(), pageUp),
       greaterThan(0),
-      reason: '上滑应发至少一个 lineUp 序列',
+      reason: '上滑应发至少一个 PageUp 序列',
     );
     expect(
-      countOf(captured.join(), lineDown),
+      countOf(captured.join(), pageDown),
       0,
-      reason: '上滑不应发 lineDown 序列',
+      reason: '上滑不应发 PageDown 序列',
     );
 
     await flushTimers(tester);
   });
 
-  testWidgets('down-swipe sends lineDown sequences only', (tester) async {
+  testWidgets('down-swipe sends PageDown sequences only', (tester) async {
     setUpHerdrController();
     await pumpSurface(tester);
 
-    // 下滑（回新内容）→ 应发 lineDown（\x1b[1;7B），不发 lineUp。
+    // 下滑（回新内容）→ 应发 PageDown（\x1b[6~），不发 PageUp。
     await tester.drag(find.byType(TerminalSurface), const Offset(0, 300));
     await tester.pump();
 
     expect(
-      countOf(captured.join(), lineDown),
+      countOf(captured.join(), pageDown),
       greaterThan(0),
-      reason: '下滑应发至少一个 lineDown 序列',
+      reason: '下滑应发至少一个 PageDown 序列',
     );
     expect(
-      countOf(captured.join(), lineUp),
+      countOf(captured.join(), pageUp),
       0,
-      reason: '下滑不应发 lineUp 序列',
+      reason: '下滑不应发 PageUp 序列',
     );
 
     await flushTimers(tester);
   });
 
-  testWidgets('large scroll sends at most 30 sequences per event', (
+  testWidgets('large scroll sends at most 4 sequences per event', (
     tester,
   ) async {
     setUpHerdrController();
     await pumpSurface(tester);
 
-    // 一次大幅上滑（5000px ≈ 280 行）→ 单个 onTouchScroll 事件的 delta
-    // 远超 30，必须被截断到 30。tester.drag 拆成 slop + 余量两次移动，
-    // 余量那次就是一个超大 delta 的独立事件。
+    // 一次大幅上滑（5000px ≈ 300+ 行）→ 单个 onTouchScroll 事件的 delta
+    // 远超 4 页上限，必须被截断到 4 个序列。tester.drag 拆成 slop + 余量
+    // 两次移动，余量那次就是一个超大 delta 的独立事件。
     await tester.drag(find.byType(TerminalSurface), const Offset(0, -5000));
     await tester.pump();
 
     expect(captured, isNotEmpty, reason: '大幅上滑应产生滚动序列');
     for (final output in captured) {
       expect(
-        countOf(output, lineUp) + countOf(output, lineDown),
+        countOf(output, pageUp) + countOf(output, pageDown),
         lessThanOrEqualTo(maxSequencesPerEvent),
-        reason: '单个 onTouchScroll 事件发送的序列数不得超过 30',
+        reason: '单个 onTouchScroll 事件发送的序列数不得超过 4',
       );
     }
     expect(
-      countOf(captured.join(), lineDown),
+      countOf(captured.join(), pageDown),
       0,
-      reason: '上滑不应发 lineDown 序列',
+      reason: '上滑不应发 PageDown 序列',
     );
 
     await flushTimers(tester);
