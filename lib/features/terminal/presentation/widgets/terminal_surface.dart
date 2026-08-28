@@ -79,23 +79,6 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   Timer? _scrollFlushTimer;
   int _pendingScrollLines = 0; // 带方向符号的累计行数
 
-  // ── 本地预测位移（local-prediction transform）──
-  // 手指拖动时，conduit_vt 会以行增量调用 [_onTerminalTouchScroll]，
-  // 但远端 PTY 轮回 terminal 画面有 RTT（~180ms）。为了让内容“贴
-  // 手指”，在收到 [_onTerminalTouchScroll] 增量的同时，实时把
-  // 整个 [TerminalView] 视觉上下平移 [_predictionOffset] 像素
-  // （正值=手指上滑/内容往下走，即 “内容跟随手指”）。
-  // 真实滚动状态完全不碰 —— 远端新帧到达时 (terminalPaintListenable
-  // 触发) 把 [_predictionOffset] 平滑衰减到 0，视觉上无缝。
-  // 5.5 个行高上限的夹住是为了“在追手”最坏情况下画面也不会跑飞。
-  double _predictionOffset = 0;
-  Timer? _predictionFallbackTimer;
-
-  // 当远端帧抵达时，我们用一个 1->0 的比例渐变而不是直接跳 0，这样
-  // 视觉上更顺。constant 0.3 是 "每帧保留 30%"。
-  static const double _predictionDecayFactor = 0.3;
-  static const Duration _predictionFallback = Duration(milliseconds: 500);
-
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
         ? const PointerInputs({PointerInput.tap})
@@ -134,8 +117,6 @@ class TerminalSurfaceState extends State<TerminalSurface> {
     _terminalController.dispose();
     _scrollFlushTimer?.cancel();
     _scrollFlushTimer = null;
-    _predictionFallbackTimer?.cancel();
-    _predictionFallbackTimer = null;
     super.dispose();
   }
 
@@ -174,16 +155,18 @@ class TerminalSurfaceState extends State<TerminalSurface> {
       _pinchStartDistance = null;
       _pinchStartFontSize = null;
     }
-    // 手势结束：把还没冲刷完的剩余行量一次性补发（手行级+页级混合），
-    // 然后取消 timer。endFlush 门槛 4 行避免轻微抖动，同时保证
-    // 任何有意义的滚动都能在离手后即时生效。
+    // 手势结束：把还没冲刷完的剩余行量一次性补发一页，然后取消 timer。
+    // 门槛 4 行（与原 `abs < 4 return` 同步）避免轻微抖动触发额外页面，
+    // 同时保证任何有意义的滚动都能在离手后即时生效。
     if (_pendingScrollLines != 0) {
-      _flushPendingScroll(force: true);
+      final endPages = _scrollCoalescer.endFlush(_pendingScrollLines);
+      if (endPages != 0) {
+        _emitScrollPages(endPages);
+      }
+      _pendingScrollLines = 0;
     }
     _scrollFlushTimer?.cancel();
     _scrollFlushTimer = null;
-    // 手势结束：启动 500ms 兑底timer，确保预测位移不会挂死。
-    _schedulePredictionFallback();
   }
 
   double get _pinchDistance {
@@ -219,10 +202,6 @@ class TerminalSurfaceState extends State<TerminalSurface> {
     // 累计到带方向符号的计数器，超过防积压上限则截断（保留方向）。
     _pendingScrollLines = _scrollCoalescer
         .clampPending(_pendingScrollLines + lines);
-    // 本地预测位移：与远端信号并行运行，让内容"贴手指"响应。
-    // 远端帧到达时（ListenableBuilder 重建）会调 [_decayPrediction]
-    // 平滑归零，避充跨帧突变。
-    _accumulatePrediction(lines);
     // 启动周期冲刷 timer（如果还没在跑）。多次连续增量复用同一个
     // timer，避免反复创建/销毁。
     _scrollFlushTimer ??= Timer.periodic(
@@ -231,121 +210,35 @@ class TerminalSurfaceState extends State<TerminalSurface> {
     );
   }
 
-  /// 将 [lines]（带方向符号）累加到 [_predictionOffset]（单位：像素）。
-  /// 手指上滑（看新内容，[lines] > 0）时画面跟随手指下移为正——与
-  /// 上滑“内容向新处走”的手机触控习惯一致。预测位移只是视觉层，
-  /// 真实滚动状态由远端帧到达后衰减归零。
-  ///
-  /// 仅在 herdr 会话（onTouchScroll 回调）上调用，与发送信号保持同步。
-  void _accumulatePrediction(int lines) {
-    if (lines == 0) return;
-    final view = _terminalViewKey.currentState;
-    if (view == null) return;
-    final lineHeight = view.renderTerminal.lineHeight;
-    if (lineHeight <= 0) return;
-    // 上限 ± 2 * 行高 * 24（5.5 页），避免预测位移把画面拖出可视区。
-    final maxAbs = lineHeight * TouchScrollCoalescer.linesPerPage * 2.5;
-    var next = _predictionOffset + lines * lineHeight;
-    if (next > maxAbs) next = maxAbs;
-    if (next < -maxAbs) next = -maxAbs;
-    if (next != _predictionOffset) {
-      setState(() => _predictionOffset = next);
-    }
-  }
-
-  /// 远端帧到达后调用一次：把预测位移按 30%/帧 的系数衰减。
-  /// 只允许变多（绝对值变少），不越过 0。
-  void _decayPrediction() {
-    if (_predictionOffset == 0) return;
-    final next = _predictionOffset * _predictionDecayFactor;
-    // 阈值下直接 0，避免无限趋近 0 反复重绘。
-    final nextRounded = next.abs() < 0.5 ? 0.0 : next;
-    if (nextRounded == _predictionOffset) return;
-    setState(() => _predictionOffset = nextRounded);
-    if (_predictionOffset != 0) {
-      _schedulePredictionFallback();
-    }
-  }
-
-  /// 500ms 兑底：万一远端帧几秒不更新（会话静默），强制归零。
-  void _schedulePredictionFallback() {
-    _predictionFallbackTimer?.cancel();
-    _predictionFallbackTimer = Timer(_predictionFallback, () {
-      if (!mounted) return;
-      if (_predictionOffset != 0) {
-        setState(() => _predictionOffset = 0);
-      }
-    });
-  }
-
-  /// 冲刷 [_pendingScrollLines]：混合策略。
-  /// - 不足一页（|pending| < 24）发“\x1b[1;7A/B”行级信号（手点 ctrl+alt+up/down）
-  ///   每个 = 1 行；本 tick 上限 8 个（160ms 节流后 50/秒，远低于远端 pi 洪泛线）。
-  /// - >= 一页发 PageUp/PageDown，per-tick 上限 3 页。
-  /// [force] = true 用于手势结束补冲（不走 _scrollCoalescer.endFlush()，直接
-  /// 拆完本轮“剩余行”）。
-  void _flushPendingScroll({bool force = false}) {
+  /// 冲刷 [_pendingScrollLines]：按当前待发页数送出页序列，从计数器
+  /// 减掉已发送的页量。
+  void _flushPendingScroll() {
     final pending = _pendingScrollLines;
     if (pending == 0) {
       _scrollFlushTimer?.cancel();
       _scrollFlushTimer = null;
       return;
     }
-    if (force) {
-      // 手势结束：先把 [pending] 减去本轮周期发出过的量（在调用
-      // [_onTerminalTouchScroll] 路径中已被调整），余量部分也走
-      // periodicFlushLines 逻辑：不足一页发行级，>= 一页发页级。
-      // 例如手势结束为 pending=15（< 24）会发行级 8 个，余 7 行不
-      // 再发（避免“每手势最后又双发”）；pending=30 会发行级 8 个
-      // + 1 页。
-      final decision = _scrollCoalescer.periodicFlushLines(pending);
-      _emitScrollDecision(decision);
-      final consumed = _scrollCoalescer
-          .linesConsumedByFlushDecision(decision);
-      _pendingScrollLines = pending - consumed;
+    final emit = _scrollCoalescer.periodicFlush(pending);
+    if (emit == 0) {
+      // 本周期内累计还不够 1 页，留给下个周期（或者手势结束补冲）。
       return;
     }
-    final decision = _scrollCoalescer.periodicFlushLines(pending);
-    if (decision.isEmpty) {
-      // 本周期内累计还不够一个 line-level 信号，留给下个周期
-      // （或者手势结束补冲）。
-      return;
-    }
-    _emitScrollDecision(decision);
-    _pendingScrollLines -= _scrollCoalescer
-        .linesConsumedByFlushDecision(decision);
+    _emitScrollPages(emit);
+    _pendingScrollLines -= _scrollCoalescer.linesConsumedByFlush(emit);
     if (_pendingScrollLines == 0) {
       _scrollFlushTimer?.cancel();
       _scrollFlushTimer = null;
     }
   }
 
-  /// 根据 [FlushDecision] 发出混合信号：行级优先
-  ///（\x1b[1;7A=lineUp/\x1b[1;7B=lineDown），后接页级。
-  /// 上滑（pending>0）= 看新内容 = 发 lineDown（\x1b[1;7B）/ PageDown（\x1b[6~）。
-  /// 下滑（pending<0）= 回旧内容 = 发 lineUp（\x1b[1;7A）/ PageUp（\x1b[5~）。
-  void _emitScrollDecision(FlushDecision decision) {
-    if (decision.isEmpty) return;
-    if (decision.lines != 0) {
-      _emitLineSignals(decision.lines);
-    }
-    if (decision.pages != 0) {
-      _emitPageSignals(decision.pages);
-    }
-  }
-
-  /// 发出 [count] 个行级信号。count > 0 发 lineDown（\x1b[1;7B），
-  /// count < 0 发 lineUp（\x1b[1;7A）。0 不动作。
-  void _emitLineSignals(int count) {
-    if (count == 0) return;
-    final sequence = count > 0 ? '\x1b[1;7B' : '\x1b[1;7A';
-    widget.session.terminal.textInput(sequence * count.abs());
-  }
-
-  /// 发出 [pages] 个同方向 PageUp/PageDown 序列到 PTY。pages > 0
-  /// 发 PageDown（\x1b[6~，看新），pages < 0 发 PageUp（\x1b[5~，回旧）。
-  void _emitPageSignals(int pages) {
+  /// 实际发送 [pages] 个同方向 PageUp/PageDown 序列到 PTY。
+  /// [pages] 为正发 PageDown（看新），为负发 PageUp（回旧），
+  /// 0 不动作。
+  void _emitScrollPages(int pages) {
     if (pages == 0) return;
+    // v1.4.30 方向翻转：之前 pages>0（上滑）发 PageUp，现改为发
+    // PageDown 以匹配用户“手指上滑看新内容”的直觉。
     final sequence = pages > 0 ? '\x1b[6~' : '\x1b[5~';
     widget.session.terminal.textInput(sequence * pages.abs());
   }
@@ -365,42 +258,33 @@ class TerminalSurfaceState extends State<TerminalSurface> {
         child: ListenableBuilder(
           listenable: widget.session.terminalPaintListenable,
           builder: (context, _) {
-            // 远端帧到达：在下一帧衰减预测位移。setState 在 build 中
-            // 调用是安全的（会调度下一帧重绘，不会递归）。
-            if (_predictionOffset != 0) {
-              WidgetsBinding.instance
-                  .addPostFrameCallback((_) => _decayPrediction());
-            }
             final overlays = widget.session.overlays;
-            return Transform.translate(
-              offset: Offset(0, _predictionOffset),
-              child: TerminalView(
-                widget.session.terminal,
-                key: _terminalViewKey,
-                controller: _terminalController,
-                focusNode: widget.focusNode,
-                autofocus: widget.focusNode != null,
-                deleteDetection: true,
-                keyboardType: TextInputType.visiblePassword,
-                theme: widget.palette.terminalThemeFor(widget.brightness),
-                overlays: overlays,
-                textStyle: TerminalStyle(
-                  fontFamily: widget.fontFamily,
-                  fontSize: widget.fontSize,
-                ),
-                padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                cursorType: overlays.isEmpty
-                    ? TerminalCursorType.block
-                    : TerminalCursorType.verticalBar,
-                alwaysShowCursor: true,
-                simulateScroll: !isHerdr,
-                onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
-                // herdr 会话主要是 TUI 交互：点选词、点链接、点按钮。默认
-                // 点终端会弹软键盘，遮住 TUI、抢焦点。这里传 true 让
-                // TerminalView 跳过 _onTapUp 里的 focus + openInputConnection，
-                // 需要打字时走工具栏的键盘按钮唤出 IME。
-                keepKeyboardHiddenOnTap: isHerdr,
+            return TerminalView(
+              widget.session.terminal,
+              key: _terminalViewKey,
+              controller: _terminalController,
+              focusNode: widget.focusNode,
+              autofocus: widget.focusNode != null,
+              deleteDetection: true,
+              keyboardType: TextInputType.visiblePassword,
+              theme: widget.palette.terminalThemeFor(widget.brightness),
+              overlays: overlays,
+              textStyle: TerminalStyle(
+                fontFamily: widget.fontFamily,
+                fontSize: widget.fontSize,
               ),
+              padding: const EdgeInsets.fromLTRB(0, 6, 0, 4),
+              cursorType: overlays.isEmpty
+                  ? TerminalCursorType.block
+                  : TerminalCursorType.verticalBar,
+              alwaysShowCursor: true,
+              simulateScroll: !isHerdr,
+              onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
+              // herdr 会话主要是 TUI 交互：点选词、点链接、点按钮。默认
+              // 点终端会弹软键盘，遮住 TUI、抢焦点。这里传 true 让
+              // TerminalView 跳过 _onTapUp 里的 focus + openInputConnection，
+              // 需要打字时走工具栏的键盘按钮唤出 IME。
+              keepKeyboardHiddenOnTap: isHerdr,
             );
           },
         ),

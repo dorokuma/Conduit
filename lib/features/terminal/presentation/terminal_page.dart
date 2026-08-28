@@ -148,6 +148,19 @@ class _TerminalPageState extends State<TerminalPage> {
               final landscape =
                   MediaQuery.orientationOf(context) == Orientation.landscape;
               final gestureNavigation = usesAndroidGestureNavigation(context);
+              // Per-session [TerminalView] state for the active session.
+              // Lifted out of the [TerminalKeyboardBar] constructor so the
+              // [keyboardVisible] expression and [onToggleKeyboard] handler
+              // both observe the same live [TextInputConnection] state.
+              // Using [hasInputConnection] (instead of viewInsets) makes
+              // the toolbar icon flip synchronously with the platform
+              // connection — the viewInsets gradient is still > 0 during
+              // the IME dismiss animation, so an inset-based check
+              // mis-classifies the visible state for the entire close
+              // window.
+              final viewKey = _terminalViewKeys[activeSession.host.id];
+              final view = viewKey?.currentState;
+              final keyboardVisible = view?.hasInputConnection ?? false;
               return SafeArea(
                 top: !_fullscreen,
                 bottom: shouldApplyBottomSafeArea(context),
@@ -272,11 +285,16 @@ class _TerminalPageState extends State<TerminalPage> {
                         onToggleCompose: () =>
                             setState(() => _composeMode = !_composeMode),
                         herdrPrefixKey: activeSession.host.herdrPrefixKey,
-                        // Soft-keyboard visibility: viewInsets.bottom > 0 means
-                        // the IME is up on mobile. Drives the icon of the
-                        // built-in [TerminalKeyboardAction.toggleKeyboard] key.
-                        keyboardVisible:
-                            MediaQuery.viewInsetsOf(context).bottom > 0,
+                        // Soft-keyboard visibility: drive the icon off
+                        // the live [TextInputConnection] state on the
+                        // view, not off [MediaQuery.viewInsets]. The
+                        // viewInsets gradient is still > 0 during the
+                        // IME dismiss animation, so a viewInsets-based
+                        // check shows the wrong icon for the entire
+                        // close animation. [hasInputConnection] is the
+                        // actual platform connection, which closes
+                        // synchronously with [dismissSoftKeyboard].
+                        keyboardVisible: keyboardVisible,
                         onToggleKeyboard: () {
                           // Drive the soft keyboard through the active
                           // [TerminalView] state rather than the focus
@@ -285,16 +303,32 @@ class _TerminalPageState extends State<TerminalPage> {
                           // focus listener inside the terminal would
                           // silently no-op (the IME never opens).
                           // [TerminalViewState.showSoftKeyboard] /
-                          // [hideSoftKeyboard] open the input
-                          // connection directly and unfocus on hide,
-                          // which is the only reliable path for a
-                          // toolbar button.
-                          final viewKey =
-                              _terminalViewKeys[activeSession.host.id];
-                          final view = viewKey?.currentState;
+                          // [dismissSoftKeyboard] open / close the
+                          // input connection directly and unfocus on
+                          // dismiss, which is the only reliable path
+                          // for a toolbar button. We deliberately use
+                          // [hasInputConnection] (not viewInsets) as
+                          // the toggle condition: while the IME
+                          // dismiss animation is in flight, viewInsets
+                          // is still > 0, so an inset-based check
+                          // would mis-classify the visible state and
+                          // route the second tap to showSoftKeyboard
+                          // instead of dismiss.
                           if (view == null) return;
-                          if (MediaQuery.viewInsetsOf(context).bottom > 0) {
-                            view.hideSoftKeyboard();
+                          if (view.hasInputConnection) {
+                            view.dismissSoftKeyboard();
+                            // Defend against the platform reopening
+                            // the IME: after a successful dismiss,
+                            // hand focus to a throwaway node so no
+                            // focusable widget in this subtree still
+                            // owns a focus that would re-trigger the
+                            // focus-listener path inside the terminal
+                            // (which would immediately call
+                            // requestKeyboard() and re-open the
+                            // connection we just closed).
+                            FocusScope.of(context).requestFocus(
+                              FocusNode(),
+                            );
                           } else {
                             // requestFocus is async: make sure the
                             // focus node is in the chain before

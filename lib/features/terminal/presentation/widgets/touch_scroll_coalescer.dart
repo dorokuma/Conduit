@@ -57,72 +57,22 @@ class TouchScrollCoalescer {
   /// jitter doesn't.
   static const int endFlushThreshold = 4;
 
-  /// Per-tick cap for line-level signals (one signal = one line, the
-  /// `ctrl+alt+up/down` binding on the server side). The server digests
-  /// ~50 signals/s, distilled to a 160ms window that is 8 signals
-  /// (50/0.16 ≈ 8). Anything above that is left in [pending] and falls
-  /// back to page-level on the next tick (or the end flush), so we
-  /// never exceed the server's flood line.
-  static const int flushMaxLines = 8;
-
-  /// The line-level cross-over: any pending magnitude below this is
-  /// emitted as line-level signals, at or above it the remainder is
-  /// emitted as pages. Aligned with [linesPerPage] so a single tick
-  /// never mixes line-level and page-level output for the same
-  /// remainder: 0–23 lines go out as line signals, 24+ lines go out
-  /// as pages (after subtracting whatever line signals were already
-  /// emitted, the rest rounds down to whole pages).
-  static const int lineLevelCrossOver = linesPerPage;
-
-  /// Decision bundle returned by [periodicFlushLines] for a single
-  /// periodic tick. The "lines" field is the count of line-level
-  /// signals to emit *this tick* (each represents one line of scroll);
-  /// the "pages" field is the count of whole pages to emit *this tick*,
-  /// using the same positive/negative sign convention as
-  /// [periodicFlush] (positive = newer content, negative = older).
-  ///
-  /// The split is mutually exclusive: a tick either emits line-level
-  /// signals (when the pending magnitude is below [lineLevelCrossOver]
-  /// after the line cap is applied) or whole pages (when the remainder
-  /// after the line cap still rounds to at least one full page). This
-  /// keeps the wire format predictable: the server sees either N
-  /// line-up/line-down signals or N page-up/page-down sequences, never
-  /// a mix in the same tick.
-  FlushDecision periodicFlushLines(int pending) {
-    if (pending == 0) {
-      return const FlushDecision(lines: 0, pages: 0);
+  /// Decision returned by [periodicFlush]: positive = emit that many
+  /// PageUp pages, negative = PageDown, zero = nothing to do.
+  int periodicFlush(int pending) {
+    if (pending == 0) return 0;
+    final pages = pending ~/ linesPerPage;
+    if (pages == 0) return 0;
+    if (pages.abs() > flushMaxPages) {
+      return pages > 0 ? flushMaxPages : -flushMaxPages;
     }
-    final abs = pending.abs();
-    final sign = pending.isNegative ? -1 : 1;
-
-    if (abs < lineLevelCrossOver) {
-      // Small displacement: emit line-level signals, capped at
-      // flushMaxLines per tick. The remainder stays in the pending
-      // counter for the next tick.
-      final lines = abs < flushMaxLines ? abs : flushMaxLines;
-      return FlushDecision(lines: lines * sign, pages: 0);
-    }
-
-    // Large displacement: consume the line-level cap first (cheap,
-    // smooth), then round the rest down to whole pages (capped at
-    // flushMaxPages so a saturated pending can't blow the tick).
-    final pageLines = abs - flushMaxLines;
-    final pages = pageLines ~/ linesPerPage;
-    final cappedPages = pages < flushMaxPages ? pages : flushMaxPages;
-    final emittedPages = cappedPages == 0 ? 0 : cappedPages;
-    return FlushDecision(
-      lines: flushMaxLines * sign,
-      pages: emittedPages * sign,
-    );
+    return pages;
   }
 
   /// Lines to subtract from the pending counter after a periodic flush
-  /// that emitted a [FlushDecision] from [periodicFlushLines]. The total
-  /// is the absolute sum of line-level and page-level output, signed by
-  /// the original pending direction.
-  int linesConsumedByFlushDecision(FlushDecision decision) {
-    return decision.lines.abs() + decision.pages.abs() * linesPerPage;
-  }
+  /// that emitted [emitted] pages. [emitted] must come from
+  /// [periodicFlush] (or be 0).
+  int linesConsumedByFlush(int emitted) => emitted * linesPerPage;
 
   /// Decision returned by [endFlush]: the final page to emit on gesture
   /// end, or 0 to drop the remainder. Always 1 page (in the dominant
@@ -135,29 +85,4 @@ class TouchScrollCoalescer {
   /// Clamp a (signed) accumulated line delta into the safe range.
   int clampPending(int value) =>
       value.clamp(-pendingClamp, pendingClamp);
-}
-
-/// Decision bundle returned by [TouchScrollCoalescer.periodicFlushLines].
-/// A zero in both fields means "emit nothing this tick".
-///
-/// `lines` is signed (positive = new content direction, negative = old
-/// content direction) so the caller can pick the right escape sequence.
-/// `pages` follows the same convention.
-class FlushDecision {
-  const FlushDecision({required this.lines, required this.pages});
-
-  final int lines;
-  final int pages;
-
-  bool get isEmpty => lines == 0 && pages == 0;
-
-  @override
-  bool operator ==(Object other) =>
-      other is FlushDecision && other.lines == lines && other.pages == pages;
-
-  @override
-  int get hashCode => Object.hash(lines, pages);
-
-  @override
-  String toString() => 'FlushDecision(lines: $lines, pages: $pages)';
 }

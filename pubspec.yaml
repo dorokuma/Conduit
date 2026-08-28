@@ -1,7 +1,7 @@
 name: conduit
 description: "A mobile terminal workspace for SSH, Mosh, SFTP, and local shells."
 publish_to: 'none'
-version: 1.4.32+57
+version: 1.4.33+58
 
 environment:
   sdk: ^3.12.0
@@ -22,7 +22,7 @@ dependencies:
   conduit_vt:
     git:
       url: https://github.com/dorokuma/conduit_vt.git
-      ref: 2524384fd1f218700b8af257848328a42da2baa0
+      ref: 7bb6db6
   dart_mosh: ^0.0.4
   flutter_pty: ^0.4.2
   ffi: ^2.2.0
