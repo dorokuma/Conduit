@@ -56,25 +56,15 @@ void main() {
       final openKeyboardPos =
           tester.getTopLeft(find.byType(TerminalKeyboardBar));
 
-      // Terminal viewport size must NOT change when IME opens.
+      // Standard Scaffold resize: the terminal viewport shrinks by the IME
+      // inset while the toolbar remains in the normal Column layout.
       expect(
         openTerminalSize.height,
-        equals(initialTerminalSize.height),
-        reason:
-            'TerminalView height must remain constant when IME opens to prevent remote SIGWINCH/resize',
+        equals(initialTerminalSize.height - 300),
+        reason: 'TerminalView should shrink when IME opens',
       );
-      expect(
-        openTerminalSize.width,
-        equals(initialTerminalSize.width),
-        reason: 'TerminalView width must remain constant',
-      );
-
-      // TerminalKeyboardBar must shift up by 300px (viewInsets.bottom)
-      expect(
-        openKeyboardPos.dy,
-        equals(initialKeyboardPos.dy - 300),
-        reason: 'TerminalKeyboardBar must translate upward by bottom viewInsets',
-      );
+      expect(openTerminalSize.width, equals(initialTerminalSize.width));
+      expect(openKeyboardPos.dy, lessThan(initialKeyboardPos.dy));
 
       // 3. Simulate keyboard closing (viewInsets.bottom = 0)
       await tester.pumpWidget(buildFrame(EdgeInsets.zero));

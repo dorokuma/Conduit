@@ -77,7 +77,13 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   static const TouchScrollCoalescer _scrollCoalescer = TouchScrollCoalescer();
   static const Duration _scrollFlushInterval = Duration(milliseconds: 160);
   Timer? _scrollFlushTimer;
+  Timer? _predictionResetTimer;
   int _pendingScrollLines = 0; // 带方向符号的累计行数
+
+  // 简化版预测位移：只在 herdr 触摸手势期间累加，不做任何衰减。
+  // lines > 0 表示手指上滑看新内容，内容应向上移，故 offset 为负。
+  double _predictionOffset = 0;
+  static const double _predictionPages = 2.5;
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
     return terminalMouseInput
@@ -116,7 +122,9 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   void dispose() {
     _terminalController.dispose();
     _scrollFlushTimer?.cancel();
+    _predictionResetTimer?.cancel();
     _scrollFlushTimer = null;
+    _predictionResetTimer = null;
     super.dispose();
   }
 
@@ -167,6 +175,16 @@ class TerminalSurfaceState extends State<TerminalSurface> {
     }
     _scrollFlushTimer?.cancel();
     _scrollFlushTimer = null;
+    // Normal path resets in this same frame. Keep a short-lived fallback for
+    // an abnormal state update that prevents the immediate reset from running.
+    if (_predictionOffset != 0) {
+      _predictionResetTimer?.cancel();
+      _predictionResetTimer = Timer(const Duration(milliseconds: 500), () {
+        if (!mounted || _predictionOffset == 0) return;
+        setState(() => _predictionOffset = 0);
+      });
+      setState(() => _predictionOffset = 0);
+    }
   }
 
   double get _pinchDistance {
@@ -199,15 +217,35 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   /// pi TUI 洪泛线），手势结束时再补冲一次。
   void _onTerminalTouchScroll(int lines) {
     if (lines == 0) return;
+    final lineHeight = _terminalViewKey.currentState?.renderTerminal.lineHeight;
+    if (lineHeight != null && lineHeight > 0) {
+      final maxOffset = _predictionPages * _estimatedLinesPerPage * lineHeight;
+      setState(() {
+        _predictionOffset = (_predictionOffset - lines * lineHeight).clamp(
+          -maxOffset,
+          maxOffset,
+        );
+      });
+    }
     // 累计到带方向符号的计数器，超过防积压上限则截断（保留方向）。
-    _pendingScrollLines = _scrollCoalescer
-        .clampPending(_pendingScrollLines + lines);
+    _pendingScrollLines = _scrollCoalescer.clampPending(
+      _pendingScrollLines + lines,
+    );
     // 启动周期冲刷 timer（如果还没在跑）。多次连续增量复用同一个
     // timer，避免反复创建/销毁。
     _scrollFlushTimer ??= Timer.periodic(
       _scrollFlushInterval,
       (_) => _flushPendingScroll(),
     );
+  }
+
+  double get _estimatedLinesPerPage {
+    final view = _terminalViewKey.currentState;
+    if (view == null) return 35;
+    final render = view.renderTerminal;
+    final height = render.size.height;
+    final lineHeight = render.lineHeight;
+    return lineHeight > 0 ? height / lineHeight : 35;
   }
 
   /// 冲刷 [_pendingScrollLines]：按当前待发页数送出页序列，从计数器
@@ -259,7 +297,7 @@ class TerminalSurfaceState extends State<TerminalSurface> {
           listenable: widget.session.terminalPaintListenable,
           builder: (context, _) {
             final overlays = widget.session.overlays;
-            return TerminalView(
+            final terminal = TerminalView(
               widget.session.terminal,
               key: _terminalViewKey,
               controller: _terminalController,
@@ -282,9 +320,11 @@ class TerminalSurfaceState extends State<TerminalSurface> {
               onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
               // herdr 会话主要是 TUI 交互：点选词、点链接、点按钮。默认
               // 点终端会弹软键盘，遮住 TUI、抢焦点。这里传 true 让
-              // TerminalView 跳过 _onTapUp 里的 focus + openInputConnection，
-              // 需要打字时走工具栏的键盘按钮唤出 IME。
               keepKeyboardHiddenOnTap: isHerdr,
+            );
+            return Transform.translate(
+              offset: Offset(0, _predictionOffset),
+              child: terminal,
             );
           },
         ),
