@@ -102,7 +102,7 @@ void main() {
     return scrollablesOf(tester).first.position.pixels;
   }
 
-  group('herdr primary screen (regular): local natively smooth scroll', () {
+  group('herdr primary screen with scrollback: local natively smooth scroll', () {
     testWidgets('up-swipe scrolls local scrollback, sends no remote keys', (
       tester,
     ) async {
@@ -125,7 +125,7 @@ void main() {
       scrollablesOf(tester).first.position.jumpTo(maxExtent / 2);
       await tester.pump();
       final beforeUp = scrollOffsetOf(tester);
-      // 上滑（看新内容）。v1.4.34：主屏应本地滚动，不发任何远端键。
+      // 上滑（看新内容）。v1.4.34：主屏有 scrollback 应本地滚动，不发任何远端键。
       await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
       await tester.pump();
 
@@ -172,6 +172,90 @@ void main() {
         captured,
         isEmpty,
         reason: '主屏下滑不应发任何 PageUp/PageDown 远端键',
+      );
+
+      await flushTimers(tester);
+    });
+  });
+
+  group('herdr primary screen without scrollback: remote PageUp/PageDown fallback', () {
+    testWidgets('up-swipe sends PageDown sequences only', (tester) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+      await tester.pump();
+
+      // 主屏无 scrollback（恢复大会话场景，本地行数 <= 视口）
+      expect(controller.terminal.isUsingAltBuffer, isFalse);
+
+      // 上滑（看新内容）→ 应回退发 PageDown（\x1b[6~），不发 PageUp。
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
+      await tester.pump();
+
+      expect(
+        countOf(captured.join(), pageDown),
+        greaterThan(0),
+        reason: '主屏无 scrollback 上滑应发至少一个 PageDown 序列',
+      );
+      expect(
+        countOf(captured.join(), pageUp),
+        0,
+        reason: '主屏无 scrollback 上滑不应发 PageUp 序列',
+      );
+
+      await flushTimers(tester);
+    });
+
+    testWidgets('down-swipe sends PageUp sequences only', (tester) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+      await tester.pump();
+
+      expect(controller.terminal.isUsingAltBuffer, isFalse);
+
+      // 下滑（回旧内容）→ 应回退发 PageUp（\x1b[5~），不发 PageDown。
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, 300));
+      await tester.pump();
+
+      expect(
+        countOf(captured.join(), pageUp),
+        greaterThan(0),
+        reason: '主屏无 scrollback 下滑应发至少一个 PageUp 序列',
+      );
+      expect(
+        countOf(captured.join(), pageDown),
+        0,
+        reason: '主屏无 scrollback 下滑不应发 PageDown 序列',
+      );
+
+      await flushTimers(tester);
+    });
+  });
+
+  group('herdr primary screen hysteresis', () {
+    testWidgets('transitions from remote fallback to local scroll when exceeding hysteresis threshold', (
+      tester,
+    ) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+      await tester.pump();
+
+      // 1. 初始无 scrollback：拖动发 PageDown
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
+      await tester.pump();
+      expect(countOf(captured.join(), pageDown), greaterThan(0));
+      captured.clear();
+
+      // 2. 写入大量 scrollback (> viewHeight + 5)
+      seedScrollback(200);
+      await tester.pump();
+
+      // 3. 此时应切换为本地滚动，不再发远端键
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
+      await tester.pump();
+      expect(
+        captured,
+        isEmpty,
+        reason: '切换为本地滚动后拖拽不应再发远端键',
       );
 
       await flushTimers(tester);
