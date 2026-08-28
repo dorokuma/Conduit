@@ -1,7 +1,7 @@
 name: conduit
 description: "A mobile terminal workspace for SSH, Mosh, SFTP, and local shells."
 publish_to: 'none'
-version: 1.4.37+62
+version: 1.4.38+63
 
 environment:
   sdk: ^3.12.0
