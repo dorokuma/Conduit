@@ -34,7 +34,6 @@ class TerminalSessionController extends ChangeNotifier {
   }) : keyboard = TerminalKeyboardController(defaultInputHandler),
        terminal = Terminal(
          maxLines: 10000,
-         keepScrollbackOnErase: true,
        ) {
     _predictiveEchoEnabled = predictiveEchoEnabled;
     _enterSequence = enterSequence;
