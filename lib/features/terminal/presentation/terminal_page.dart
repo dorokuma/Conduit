@@ -330,21 +330,19 @@ class _TerminalPageState extends State<TerminalPage> {
                               FocusNode(),
                             );
                           } else {
-                            // requestFocus is async: make sure the
-                            // focus node is in the chain before
-                            // asking the view to show, so subsequent
-                            // key events are delivered. The view
-                            // itself also schedules a post-frame
-                            // retry, so the show works even if the
-                            // focus transition hasn't completed by
-                            // the time we call.
+                            // v1.4.34: conduit_vt's [CustomTextEdit]
+                            // now tracks a _pendingShowKeyboard flag
+                            // set when [requestFocus] is called on an
+                            // unfocused node. The focus listener opens
+                            // the input connection as soon as focus
+                            // settles, regardless of the keyboard
+                            // token — so a single showSoftKeyboard
+                            // call is enough, no post-frame retry is
+                            // needed. We still request focus on the
+                            // node first so subsequent key events are
+                            // delivered to the terminal.
                             _focusNode.requestFocus();
                             view.showSoftKeyboard();
-                            WidgetsBinding.instance.addPostFrameCallback((
-                              _,
-                            ) {
-                              viewKey?.currentState?.showSoftKeyboard();
-                            });
                           }
                         },
                       ),

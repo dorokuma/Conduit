@@ -60,6 +60,23 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   late final GlobalKey<TerminalViewState> _terminalViewKey =
       widget.terminalViewKey ?? GlobalKey<TerminalViewState>();
 
+  // Whether the underlying terminal is currently using the alternate
+  // screen buffer (full-screen TUI: vi, htop, pi in TUI mode, etc).
+  // herdr sessions switch between the primary and the alt buffer
+  // frequently as the user drops into a TUI and back out. We track it
+  // so the touch-scroll wiring can pick the right strategy per buffer:
+  //   * primary screen (regular) — native scrollback drag, no network
+  //     round-trip, 0-latency local scroll;
+  //   * alt screen — the scrollback is the TUI itself, so touch drag
+  //     must be replayed as PageUp/PageDown to the remote pane (or
+  //     arrow keys under mouse reporting).
+  //
+  // Updated by [_onTerminalUpdate] whenever the terminal fires its
+  // [Observable] notification, so a mid-session TUI toggle (e.g. the
+  // user runs /tui-mode in pi) is followed automatically without a
+  // page rebuild.
+  bool _isAltBuffer = false;
+
   // ── Touch-scroll coalescing ──
   // conduit_vt 转发给我们的 onTouchScroll 回调，在原实现里 “1–3 行” 的
   // 小增量会被 `abs < 4` 丢掉，但一旦快速拖动产生单个 ≥4 行增量就发
@@ -92,6 +109,8 @@ class TerminalSurfaceState extends State<TerminalSurface> {
       pointerInputs: _pointerInputsFor(widget.terminalMouseInput),
     );
     widget.session.predictiveEchoEnabled = widget.predictiveEchoEnabled;
+    _isAltBuffer = widget.session.terminal.isUsingAltBuffer;
+    widget.session.terminal.addListener(_onTerminalUpdate);
     WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
   }
 
@@ -108,12 +127,16 @@ class TerminalSurfaceState extends State<TerminalSurface> {
       );
     }
     if (oldWidget.session != widget.session) {
+      _isAltBuffer = widget.session.terminal.isUsingAltBuffer;
+      oldWidget.session.terminal.removeListener(_onTerminalUpdate);
+      widget.session.terminal.addListener(_onTerminalUpdate);
       WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
     }
   }
 
   @override
   void dispose() {
+    widget.session.terminal.removeListener(_onTerminalUpdate);
     _terminalController.dispose();
     _scrollFlushTimer?.cancel();
     _scrollFlushTimer = null;
@@ -123,6 +146,19 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   Future<void> _connectIfNeeded() async {
     if (!mounted || !widget.session.shouldConnect) return;
     await widget.session.connect();
+  }
+
+  /// Terminal [Observable] hook: tracks the alt-buffer transitions so
+  /// the touch-scroll wiring in [build] always picks the right strategy
+  /// for the current screen. The terminal fires a notification after
+  /// every screen-buffer swap (primary <-> alt), and we only rebuild
+  /// when the bit actually flipped, so a write storm from a TUI does
+  /// not cost us a frame.
+  void _onTerminalUpdate() {
+    if (!mounted) return;
+    final next = widget.session.terminal.isUsingAltBuffer;
+    if (next == _isAltBuffer) return;
+    setState(() => _isAltBuffer = next);
   }
 
   // ── Pointer 事件（Listener 不参与手势竞技场，总能收到）──
@@ -248,6 +284,22 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   @override
   Widget build(BuildContext context) {
     final isHerdr = widget.session.host.startHerdrOnConnect;
+    // herdr sessions can run in either the primary screen (the host's
+    // own scrollback: bash history, pi pane output, etc) or the alt
+    // screen (a TUI like vi / htop / pi in TUI mode). The two screens
+    // need different touch-scroll strategies:
+    //   * primary — conduit_vt owns the scrollback, so a drag should
+    //     scroll the local buffer directly (0 RTT, fully native
+    //     smooth). We pass simulateScroll=true and leave onTouchScroll
+    //     null, which lets the inner [Scrollable] pick up the drag.
+    //   * alt — the TUI owns the screen, there is no scrollback to
+    //     scroll locally. We forward the drag as a PageUp/PageDown
+    //     stream to the remote pane so the pane's TUI can do its own
+    //     thing (vim line-scroll, pi conversation flip, etc).
+    // pre-v1.4.34 we forced onTouchScroll for every herdr session
+    // regardless of buffer, which made primary-screen scrolling feel
+    // sluggish on flaky links (every drag was a network round trip).
+    final herdrOnPrimary = isHerdr && !_isAltBuffer;
     return ClipRect(
       child: Listener(
         behavior: HitTestBehavior.translucent,
@@ -278,8 +330,12 @@ class TerminalSurfaceState extends State<TerminalSurface> {
                   ? TerminalCursorType.block
                   : TerminalCursorType.verticalBar,
               alwaysShowCursor: true,
-              simulateScroll: !isHerdr,
-              onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
+              // herdr + alt screen: scrollback lives in the remote TUI,
+              // so we replay the drag as PageUp/PageDown. herdr +
+              // primary screen (and non-herdr): scroll the local
+              // buffer natively. See herdrOnPrimary note above.
+              simulateScroll: !isHerdr || herdrOnPrimary,
+              onTouchScroll: herdrOnPrimary ? null : _onTerminalTouchScroll,
               // herdr 会话主要是 TUI 交互：点选词、点链接、点按钮。默认
               // 点终端会弹软键盘，遮住 TUI、抢焦点。这里传 true 让
               // TerminalView 跳过 _onTapUp 里的 focus + openInputConnection，
@@ -297,24 +353,16 @@ class TerminalSurfaceState extends State<TerminalSurface> {
   /// Show the soft keyboard for this terminal.
   ///
   /// Forwards to [TerminalViewState.showSoftKeyboard], which opens the
-  /// input connection regardless of the [FocusNode.consumeKeyboardToken]
-  /// path — needed because the toolbar button's programmatic
-  /// [FocusNode.requestFocus] never produces a token, so the focus
-  /// listener inside the terminal would silently no-op. Schedules a
-  /// post-frame retry so the show also works when the focus node is
-  /// not yet focused on the first tap (focus changes are async).
+  /// input connection directly (bypassing the
+  /// [FocusNode.consumeKeyboardToken] path). v1.4.34 added a
+  /// _pendingShowKeyboard flag in conduit_vt's [CustomTextEdit] so
+  /// that even when the focus node is not yet focused on the first
+  /// tap (because the previous dismiss moved focus to a throwaway
+  /// node and the focus transition is still in flight), the IME
+  /// opens the moment focus settles — the first tap is now
+  /// sufficient, no post-frame retry needed.
   void showSoftKeyboard() {
-    final view = _terminalViewKey.currentState;
-    if (view == null) return;
-    view.showSoftKeyboard();
-    // requestFocus() is async: if the focus node was not yet focused
-    // when showSoftKeyboard() ran, the freshly focused node may need a
-    // second pass once the focus chain has settled. The retry is a
-    // no-op when the keyboard is already open, so the cost is bounded.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _terminalViewKey.currentState?.showSoftKeyboard();
-    });
+    _terminalViewKey.currentState?.showSoftKeyboard();
   }
 
   /// Hide the soft keyboard and drop terminal focus.

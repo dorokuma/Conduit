@@ -12,11 +12,14 @@ import '../../support/test_doubles.dart';
 // host.startHerdrOnConnect，而 terminal.textInput 会同步触发 onOutput，
 // 直接劫持 onOutput 捕获发送字节即可断言。
 //
-// 方向符号（已实测固化）：conduit_vt 的 onTouchScroll 行增量在
-// 手指上滑（看新内容，dy < 0）时为**正**，手指下滑（回旧内容，
-// dy > 0）时为**负**。v1.4.30 方向翻转：上滑 → PageDown（\x1b[6~），
-// 下滑 → PageUp（\x1b[5~），与手机触控主流约定一致（手指上滑
-// 内容是“新的”）。
+// v1.4.34 起 herdr 会话的触摸滚动按屏幕缓冲区分策略：
+//   * 主屏（regular，非 alt buffer）—— conduit_vt 自己持有 scrollback，
+//     拖动手势在本机缓冲直接滚动，0 网络往返（丝滑）。不发送任何远端键
+//     （无 PageUp/PageDown）。
+//   * alt 屏（全屏 TUI，写入 \x1b[?1049h 后）—— 屏幕被 TUI 占用，本地
+//     无可滚 scrollback，拖动手势转成 PageUp/PageDown 发给远端 pane。
+//     方向约定 v1.4.30 翻面：上滑（看新内容）→ PageDown（\x1b[6~），
+//     下滑（回旧内容）→ PageUp（\x1b[5~）。
 const pageUp = '\x1b[5~';
 const pageDown = '\x1b[6~';
 const maxSequencesPerEvent = 4;
@@ -62,6 +65,14 @@ void main() {
     controller.terminal.onOutput = captured.add;
   }
 
+  // 往主屏写入足够多的行，制造可滚动的 scrollback（这样才能断言本地
+  // 滚动 offset 真的在变化）。用 \r\n 让每行都换行。
+  void seedScrollback(int lines) {
+    controller.terminal.write(
+      List<String>.generate(lines, (i) => 'scrollback line $i').join('\r\n'),
+    );
+  }
+
   tearDown(() {
     controller.dispose();
   });
@@ -75,106 +86,216 @@ void main() {
   int countOf(String haystack, String needle) =>
       needle.allMatches(haystack).length;
 
-  testWidgets('up-swipe sends PageDown sequences only', (tester) async {
-    setUpHerdrController();
-    await pumpSurface(tester);
+  // 读取 TerminalView 内部 Scrollable 的当前像素偏移。主屏 + 无
+  // onTouchScroll 时，conduit_vt 不包 InfiniteScrollView，只有一个
+  // 内部 Scrollable（由 terminal_view 的 physics 驱动的 scrollback）。
+  Iterable<ScrollableState> scrollablesOf(WidgetTester tester) {
+    final states = tester.stateList<ScrollableState>(find.descendant(
+      of: find.byType(TerminalSurface),
+      matching: find.byType(Scrollable),
+    ));
+    expect(states, isNotEmpty, reason: '应有内部 Scrollable 承载 scrollback');
+    return states;
+  }
 
-    // 上滑（看新内容）→ 应发 PageDown（\x1b[6~），不发 PageUp。
-    await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
-    await tester.pump();
+  double scrollOffsetOf(WidgetTester tester) {
+    return scrollablesOf(tester).first.position.pixels;
+  }
 
-    expect(
-      countOf(captured.join(), pageDown),
-      greaterThan(0),
-      reason: '上滑应发至少一个 PageDown 序列',
-    );
-    expect(
-      countOf(captured.join(), pageUp),
-      0,
-      reason: '上滑不应发 PageUp 序列',
-    );
-
-    await flushTimers(tester);
-  });
-
-  testWidgets('down-swipe sends PageUp sequences only', (tester) async {
-    setUpHerdrController();
-    await pumpSurface(tester);
-
-    // 下滑（回旧内容）→ 应发 PageUp（\x1b[5~），不发 PageDown。
-    await tester.drag(find.byType(TerminalSurface), const Offset(0, 300));
-    await tester.pump();
-
-    expect(
-      countOf(captured.join(), pageUp),
-      greaterThan(0),
-      reason: '下滑应发至少一个 PageUp 序列',
-    );
-    expect(
-      countOf(captured.join(), pageDown),
-      0,
-      reason: '下滑不应发 PageDown 序列',
-    );
-
-    await flushTimers(tester);
-  });
-
-  testWidgets('large scroll sends at most 4 sequences per event', (
-    tester,
-  ) async {
-    setUpHerdrController();
-    await pumpSurface(tester);
-
-    // 一次大幅上滑（5000px ≈ 300+ 行）→ 单个 onTouchScroll 事件的 delta
-    // 远超 4 页上限，必须被截断到 4 个序列。tester.drag 拆成 slop + 余量
-    // 两次移动，余量那次就是一个超大 delta 的独立事件。
-    await tester.drag(find.byType(TerminalSurface), const Offset(0, -5000));
-    await tester.pump();
-
-    expect(captured, isNotEmpty, reason: '大幅上滑应产生滚动序列');
-    for (final output in captured) {
-      expect(
-        countOf(output, pageUp) + countOf(output, pageDown),
-        lessThanOrEqualTo(maxSequencesPerEvent),
-        reason: '单个 onTouchScroll 事件发送的序列数不得超过 4',
-      );
-    }
-    expect(
-      countOf(captured.join(), pageUp),
-      0,
-      reason: '上滑不应发 PageUp 序列',
-    );
-
-    await flushTimers(tester);
-  });
-
-  testWidgets(
-    'pending counter resets after pointer up: a follow-up idle interval '
-    'produces no further PageUps',
-    (tester) async {
+  group('herdr primary screen (regular): local natively smooth scroll', () {
+    testWidgets('up-swipe scrolls local scrollback, sends no remote keys', (
+      tester,
+    ) async {
       setUpHerdrController();
       await pumpSurface(tester);
-
-      // First drag triggers the end-flush, sets pending to 0, and
-      // cancels the flush timer.
-      await tester.drag(
-        find.byType(TerminalSurface),
-        const Offset(0, -300),
-      );
+      // 等首帧 + connect/resize 完成（resize 会重置 buffer），再写入
+      // scrollback，避免被 resize 清掉。
       await tester.pump();
-      final afterFirstDrag = captured.length;
-      expect(afterFirstDrag, greaterThan(0));
+      seedScrollback(200);
+      await tester.pump();
 
-      // If the timer were still running, pumping 1 second of fake time
-      // would flush whatever happened to be left in the pending
-      // counter. With the fix, pending is reset on pointer-up and the
-      // timer is cancelled, so no further output should appear.
-      await tester.pump(const Duration(seconds: 1));
+      final maxExtent = scrollablesOf(tester).first.position.maxScrollExtent;
       expect(
-        captured.length,
-        afterFirstDrag,
-        reason: '手势结束后 1 秒内不应再产生滚动序列',
+        maxExtent,
+        greaterThan(0),
+        reason: '应有可滚动的本地 scrollback',
       );
-    },
-  );
+      // 写作入后 scrollable 自动滚到底部——先退回中间，给上滑留出
+      //（向更新内容方向）滚动的空间。
+      scrollablesOf(tester).first.position.jumpTo(maxExtent / 2);
+      await tester.pump();
+      final beforeUp = scrollOffsetOf(tester);
+      // 上滑（看新内容）。v1.4.34：主屏应本地滚动，不发任何远端键。
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
+      await tester.pump();
+
+      expect(
+        scrollOffsetOf(tester),
+        greaterThan(beforeUp),
+        reason: '主屏上滑应直接滚动本地 scrollback（offset 增大）',
+      );
+      expect(
+        captured,
+        isEmpty,
+        reason: '主屏上滑不应发任何 PageUp/PageDown 远端键',
+      );
+
+      await flushTimers(tester);
+    });
+
+    testWidgets('down-swipe scrolls local scrollback, sends no remote keys', (
+      tester,
+    ) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+      await tester.pump();
+      seedScrollback(200);
+      await tester.pump();
+
+      // 先把 scrollback 滚到中间，留出下滚空间。
+      final maxBefore = scrollablesOf(tester).first.position.maxScrollExtent;
+      expect(maxBefore, greaterThan(0), reason: '应有可滚动的本地 scrollback');
+      scrollablesOf(tester).first.position.jumpTo(maxBefore / 2);
+      await tester.pump();
+      final before = scrollOffsetOf(tester);
+
+      // 下滑（回旧内容）→ 本地滚动 offset 减小，不发远端键。
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, 300));
+      await tester.pump();
+
+      expect(
+        scrollOffsetOf(tester),
+        lessThan(before),
+        reason: '主屏下滑应直接滚动本地 scrollback（offset 减小）',
+      );
+      expect(
+        captured,
+        isEmpty,
+        reason: '主屏下滑不应发任何 PageUp/PageDown 远端键',
+      );
+
+      await flushTimers(tester);
+    });
+  });
+
+  group('herdr alt screen (TUI): remote PageUp/PageDown replay', () {
+    testWidgets('up-swipe sends PageDown sequences only', (tester) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+      await tester.pump();
+
+      // 进入 alt buffer（全屏 TUI）。写入 \x1b[?1049h 会触发终端
+      // notifyListeners，TerminalSurface 的监听器应自动跟随切换策略。
+      controller.terminal.write('\x1b[?1049h');
+      await tester.pump();
+      expect(controller.terminal.isUsingAltBuffer, isTrue);
+
+      // 上滑（看新内容）→ 应发 PageDown（\x1b[6~），不发 PageUp。
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, -300));
+      await tester.pump();
+
+      expect(
+        countOf(captured.join(), pageDown),
+        greaterThan(0),
+        reason: 'alt 屏上滑应发至少一个 PageDown 序列',
+      );
+      expect(
+        countOf(captured.join(), pageUp),
+        0,
+        reason: 'alt 屏上滑不应发 PageUp 序列',
+      );
+
+      await flushTimers(tester);
+    });
+
+    testWidgets('down-swipe sends PageUp sequences only', (tester) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+      await tester.pump();
+
+      controller.terminal.write('\x1b[?1049h');
+      await tester.pump();
+      expect(controller.terminal.isUsingAltBuffer, isTrue);
+
+      // 下滑（回旧内容）→ 应发 PageUp（\x1b[5~），不发 PageDown。
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, 300));
+      await tester.pump();
+
+      expect(
+        countOf(captured.join(), pageUp),
+        greaterThan(0),
+        reason: 'alt 屏下滑应发至少一个 PageUp 序列',
+      );
+      expect(
+        countOf(captured.join(), pageDown),
+        0,
+        reason: 'alt 屏下滑不应发 PageDown 序列',
+      );
+
+      await flushTimers(tester);
+    });
+
+    testWidgets('large scroll sends at most 4 sequences per event', (
+      tester,
+    ) async {
+      setUpHerdrController();
+      await pumpSurface(tester);
+      await tester.pump();
+
+      controller.terminal.write('\x1b[?1049h');
+      await tester.pump();
+
+      // 一次大幅上滑（5000px ≈ 300+ 行）→ 单个 onTouchScroll 事件的 delta
+      // 远超 4 页上限，必须被截断到 4 个序列。
+      await tester.drag(find.byType(TerminalSurface), const Offset(0, -5000));
+      await tester.pump();
+
+      expect(captured, isNotEmpty, reason: '大幅上滑应产生滚动序列');
+      for (final output in captured) {
+        expect(
+          countOf(output, pageUp) + countOf(output, pageDown),
+          lessThanOrEqualTo(maxSequencesPerEvent),
+          reason: '单个 onTouchScroll 事件发送的序列数不得超过 4',
+        );
+      }
+      expect(
+        countOf(captured.join(), pageUp),
+        0,
+        reason: 'alt 屏上滑不应发 PageUp 序列',
+      );
+
+      await flushTimers(tester);
+    });
+
+    testWidgets(
+      'pending counter resets after pointer up: a follow-up idle interval '
+      'produces no further PageUps',
+      (tester) async {
+        setUpHerdrController();
+        await pumpSurface(tester);
+        await tester.pump();
+
+        controller.terminal.write('\x1b[?1049h');
+        await tester.pump();
+
+        // 第一次拖拽触发 end-flush，pending 归零，timer 取消。
+        await tester.drag(
+          find.byType(TerminalSurface),
+          const Offset(0, -300),
+        );
+        await tester.pump();
+        final afterFirstDrag = captured.length;
+        expect(afterFirstDrag, greaterThan(0));
+
+        // 若 timer 还在跑，推进 1 秒会把 pending 里剩下的东西冲出去。
+        // 修复后 pending 在手势结束时已清零、timer 已取消，不应再多输出。
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          captured.length,
+          afterFirstDrag,
+          reason: '手势结束后 1 秒内不应再产生滚动序列',
+        );
+      },
+    );
+  });
 }
