@@ -32,7 +32,10 @@ class TerminalSessionController extends ChangeNotifier {
     bool predictiveEchoEnabled = false,
     TerminalEnterSequence enterSequence = TerminalEnterSequence.cr,
   }) : keyboard = TerminalKeyboardController(defaultInputHandler),
-       terminal = Terminal(maxLines: 10000) {
+       terminal = Terminal(
+         maxLines: 10000,
+         keepScrollbackOnErase: true,
+       ) {
     _predictiveEchoEnabled = predictiveEchoEnabled;
     _enterSequence = enterSequence;
     _configureTerminal();
