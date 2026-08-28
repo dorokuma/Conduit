@@ -232,6 +232,8 @@ class _TerminalPageState extends State<TerminalPage> {
                                   session.host.id,
                                   GlobalKey<TerminalViewState>.new,
                                 ),
+                                suppressKeyboardOnFocus:
+                                    session.host.startHerdrOnConnect,
                               ),
                           ],
                         ),
@@ -357,8 +359,8 @@ class _TerminalPageState extends State<TerminalPage> {
                                 // retries below no-op if a newer show or a
                                 // dismiss has happened since.
                                 final gen = ++_keyboardShowGeneration;
-                                _focusNode.requestFocus();
                                 view.showSoftKeyboard();
+                                _focusNode.requestFocus();
                                 WidgetsBinding.instance.addPostFrameCallback((
                                   _,
                                 ) {

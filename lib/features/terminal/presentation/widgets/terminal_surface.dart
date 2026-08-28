@@ -17,6 +17,7 @@ class TerminalSurface extends StatefulWidget {
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
     required this.focusNode,
+    this.suppressKeyboardOnFocus = false,
     this.terminalViewKey,
     super.key,
   });
@@ -30,6 +31,7 @@ class TerminalSurface extends StatefulWidget {
   final bool predictiveEchoEnabled;
   final bool terminalMouseInput;
   final FocusNode? focusNode;
+  final bool suppressKeyboardOnFocus;
 
   /// Optional externally-owned key for the inner [TerminalView] state.
   /// Pass this when the parent needs to call
@@ -285,6 +287,8 @@ class TerminalSurfaceState extends State<TerminalSurface> {
               // TerminalView 跳过 _onTapUp 里的 focus + openInputConnection，
               // 需要打字时走工具栏的键盘按钮唤出 IME。
               keepKeyboardHiddenOnTap: isHerdr,
+              suppressKeyboardOnFocus:
+                  widget.suppressKeyboardOnFocus,
             );
           },
         ),

@@ -112,25 +112,29 @@ void main() {
       );
       await tester.pump();
 
-      // Initially, after focus settles on the active terminal, the input connection is open
-      final hideButton = find.byIcon(Icons.keyboard_hide_rounded);
-      expect(hideButton, findsOneWidget);
-
-      // Tap hide button to dismiss keyboard
-      await tester.tap(hideButton);
-      await tester.pump();
-
-      // Keyboard is now hidden, icon flips to keyboard_rounded
+      // Herdr focus is programmatically established on mount, but must not
+      // open an input connection or show the IME automatically.
       final showButton = find.byIcon(Icons.keyboard_rounded);
       expect(showButton, findsOneWidget);
 
       // Tap show button to open keyboard again.
-      // First-tap contract: a single tap on the keyboard button must show
-      // the IME (no second tap needed), even though the standard IME resize
-      // relayouts the body at the same time.
       await tester.tap(showButton);
       await tester.pump();
-      await tester.pump(); // allow postFrame callback to execute
+      await tester.pump();
+
+      // Keyboard is now visible; tap hide to dismiss it.
+      final hideButton = find.byIcon(Icons.keyboard_hide_rounded);
+      expect(hideButton, findsOneWidget);
+      await tester.tap(hideButton);
+      await tester.pump();
+      expect(find.byIcon(Icons.keyboard_rounded), findsOneWidget);
+
+      // Tap show button to open keyboard again.
+      // First-tap contract: a single tap on the keyboard button must show
+      // the IME, even though the standard IME resize relayouts the body.
+      await tester.tap(showButton);
+      await tester.pump();
+      await tester.pump();
 
       // Keyboard connection is reopened on the first tap.
       expect(
@@ -185,10 +189,7 @@ void main() {
       );
       await tester.pump();
 
-      // Start from a hidden IME so the show tap schedules a re-assert.
-      // The connection opens on mount, so dismiss it first.
-      await tester.tap(find.byIcon(Icons.keyboard_hide_rounded));
-      await tester.pump();
+      // Herdr focus is established on mount without opening the IME.
       expect(find.byIcon(Icons.keyboard_rounded), findsOneWidget);
 
       // Show the IME (schedules a post-resize re-assert 400ms out), then
