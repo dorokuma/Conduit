@@ -37,6 +37,11 @@ class TerminalPage extends StatefulWidget {
 
 class _TerminalPageState extends State<TerminalPage> {
   final _focusNode = FocusNode();
+  // Monotonically increasing generation counter for the soft-keyboard show
+  // path. Each show tap bumps it; a dismiss (or a newer show) bumps it again
+  // so an in-flight post-resize re-assert from an older show is invalidated
+  // and can't re-open the IME the user just dismissed.
+  int _keyboardShowGeneration = 0;
   TerminalSessionController? _focusedSession;
   bool _fullscreen = false;
   bool _composeMode = false;
@@ -325,6 +330,10 @@ class _TerminalPageState extends State<TerminalPage> {
                                     'TerminalPage.onToggleKeyboard: dismiss (hasInputConnection=${view.hasInputConnection}, hasFocus=${_focusNode.hasFocus}, viewInsets=${MediaQuery.viewInsetsOf(context).bottom})',
                                   );
                                 }
+                                // Invalidate any pending show re-assert so a
+                                // quick dismiss isn't followed by a stale
+                                // re-show of the IME we just closed.
+                                _keyboardShowGeneration++;
                                 view.dismissSoftKeyboard();
                                 // Defend against the platform reopening
                                 // the IME: after a successful dismiss,
@@ -344,15 +353,43 @@ class _TerminalPageState extends State<TerminalPage> {
                                     'TerminalPage.onToggleKeyboard: show (hasInputConnection=${view.hasInputConnection}, hasFocus=${_focusNode.hasFocus}, viewInsets=${MediaQuery.viewInsetsOf(context).bottom})',
                                   );
                                 }
+                                // Capture a fresh show generation so the
+                                // retries below no-op if a newer show or a
+                                // dismiss has happened since.
+                                final gen = ++_keyboardShowGeneration;
                                 _focusNode.requestFocus();
                                 view.showSoftKeyboard();
                                 WidgetsBinding.instance.addPostFrameCallback((
                                   _,
                                 ) {
-                                  if (mounted) {
+                                  if (mounted &&
+                                      gen == _keyboardShowGeneration) {
                                     viewKey?.currentState?.showSoftKeyboard();
                                   }
                                 });
+                                // The standard IME resize shrinks the body as
+                                // the IME appears. That window resize can
+                                // cancel the in-progress IME show on Android
+                                // (the IME is requested, then the resize
+                                // dismisses it), leaving the input connection
+                                // open but the keyboard invisible. Re-assert
+                                // the show after the resize animation settles
+                                // so the IME actually appears.
+                                // showSoftKeyboard is idempotent, so re-calling
+                                // it when the IME is already up is a no-op.
+                                Future.delayed(
+                                  const Duration(milliseconds: 400),
+                                  () {
+                                    if (!mounted ||
+                                        gen != _keyboardShowGeneration) {
+                                      return;
+                                    }
+                                    final state = viewKey?.currentState;
+                                    if (state == null) return;
+                                    _focusNode.requestFocus();
+                                    state.showSoftKeyboard();
+                                  },
+                                );
                               }
                               setState(() {});
                             },
