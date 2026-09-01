@@ -94,6 +94,7 @@ class TerminalSurfaceState extends State<TerminalSurface> {
       pointerInputs: _pointerInputsFor(widget.terminalMouseInput),
     );
     widget.session.predictiveEchoEnabled = widget.predictiveEchoEnabled;
+    widget.session.registerResizeCommitter(_commitDeferredResize);
     WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
   }
 
@@ -110,16 +111,32 @@ class TerminalSurfaceState extends State<TerminalSurface> {
       );
     }
     if (oldWidget.session != widget.session) {
+      oldWidget.session.unregisterResizeCommitter(_commitDeferredResize);
+      widget.session.registerResizeCommitter(_commitDeferredResize);
       WidgetsBinding.instance.addPostFrameCallback((_) => _connectIfNeeded());
     }
   }
 
   @override
   void dispose() {
+    widget.session.unregisterResizeCommitter(_commitDeferredResize);
     _terminalController.dispose();
     _scrollFlushTimer?.cancel();
     _scrollFlushTimer = null;
     super.dispose();
+  }
+
+  void _commitDeferredResize() {
+    _terminalViewKey.currentState?.commitDeferredResize();
+  }
+
+  void _handleViewportSizeChanged(TerminalSize size, Size cellSize) {
+    widget.session.handleViewportResized(
+      size.width,
+      size.height,
+      size.width * cellSize.width.round(),
+      size.height * cellSize.height.round(),
+    );
   }
 
   Future<void> _connectIfNeeded() async {
@@ -280,6 +297,8 @@ class TerminalSurfaceState extends State<TerminalSurface> {
                   ? TerminalCursorType.block
                   : TerminalCursorType.verticalBar,
               alwaysShowCursor: true,
+              deferResize: true,
+              onViewportSizeChanged: _handleViewportSizeChanged,
               simulateScroll: !isHerdr,
               onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
               // herdr 会话主要是 TUI 交互：点选词、点链接、点按钮。默认

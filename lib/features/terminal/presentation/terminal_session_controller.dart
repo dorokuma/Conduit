@@ -62,6 +62,7 @@ class TerminalSessionController extends ChangeNotifier {
   Timer? _resizeTimer;
   int _pendingColumns = 0;
   int _pendingRows = 0;
+  VoidCallback? _resizeCommitter;
   bool _disconnecting = false;
   bool _disposed = false;
   bool _predictiveEchoEnabled = false;
@@ -148,6 +149,10 @@ class TerminalSessionController extends ChangeNotifier {
       securityKeySubscription = SecurityKeyInteraction.instance.messages.listen(
         (message) => terminal.write('$message\r\n'),
       );
+      // Commit any deferred local resize so connect() and the follow-up
+      // session.resize see the real viewport, not the 80x24 default.
+      // No-op when a committer has not been registered.
+      _resizeCommitter?.call();
       final session = await repository.connect(
         host,
         columns: terminal.viewWidth,
@@ -395,15 +400,38 @@ class TerminalSessionController extends ChangeNotifier {
 
   void _configureTerminal() {
     terminal.inputHandler = keyboard;
-    terminal.onResize = (columns, rows, pixelWidth, pixelHeight) {
-      _pixelWidth = pixelWidth;
-      _pixelHeight = pixelHeight;
-      _pendingColumns = columns;
-      _pendingRows = rows;
-      _resizeTimer?.cancel();
-      _resizeTimer = Timer(const Duration(milliseconds: 250), _flushResize);
-    };
     terminal.onOutput = _sendTerminalOutput;
+  }
+
+  /// Stores the latest Flutter viewport size and (re)arms the 250ms debounce.
+  ///
+  /// Called from layout via [TerminalView.onViewportSizeChanged]. Must not
+  /// trigger setState or markNeedsLayout.
+  void handleViewportResized(
+    int columns,
+    int rows,
+    int pixelWidth,
+    int pixelHeight,
+  ) {
+    if (_disposed) {
+      return;
+    }
+    _pendingColumns = columns;
+    _pendingRows = rows;
+    _pixelWidth = pixelWidth;
+    _pixelHeight = pixelHeight;
+    _resizeTimer?.cancel();
+    _resizeTimer = Timer(const Duration(milliseconds: 250), _flushResize);
+  }
+
+  void registerResizeCommitter(VoidCallback committer) {
+    _resizeCommitter = committer;
+  }
+
+  void unregisterResizeCommitter(VoidCallback committer) {
+    if (_resizeCommitter == committer) {
+      _resizeCommitter = null;
+    }
   }
 
   void _sendTerminalOutput(String data) {
@@ -525,6 +553,7 @@ class TerminalSessionController extends ChangeNotifier {
     if (_session == null || _status != TerminalConnectionStatus.connected) {
       return;
     }
+    _resizeCommitter?.call();
     _pendingColumns = terminal.viewWidth;
     _pendingRows = terminal.viewHeight;
     _resizeTimer?.cancel();
@@ -534,6 +563,7 @@ class TerminalSessionController extends ChangeNotifier {
   void _flushResize() {
     final session = _session;
     if (session == null) return;
+    _resizeCommitter?.call();
     if (kDebugMode) {
       debugPrint(
         '[term ${host.name}] -> server ${_pendingColumns}x$_pendingRows',

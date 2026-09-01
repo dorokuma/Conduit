@@ -82,6 +82,72 @@ void main() {
   );
 
   testWidgets(
+    'deferred resize keeps VT rows until 250ms flush, then syncs local and remote',
+    (tester) async {
+      final themeController = ThemeController(InMemoryThemePreferences());
+      await themeController.load();
+      final session = TrackableTerminalSession();
+      final workspace = TerminalWorkspaceController(
+        ImmediateTerminalRepository(session),
+      );
+      addTearDown(workspace.dispose);
+      final controller = workspace.open(buildHost('ime-defer-resize'));
+
+      Widget buildFrame(EdgeInsets insets) {
+        return MediaQuery(
+          data: MediaQueryData(size: const Size(400, 800), viewInsets: insets),
+          child: MaterialApp(
+            home: TerminalPage(
+              workspace: workspace,
+              themeController: themeController,
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildFrame(EdgeInsets.zero));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      final initialViewHeight = controller.terminal.viewHeight;
+      final initialRemoteResizes = session.resizes.length;
+      final initialTerminalSize = tester.getSize(find.byType(TerminalView));
+      expect(initialViewHeight, greaterThan(0));
+
+      await tester.pumpWidget(buildFrame(const EdgeInsets.only(bottom: 300)));
+      await tester.pump();
+
+      expect(
+        tester.getSize(find.byType(TerminalView)).height,
+        equals(initialTerminalSize.height - 300),
+        reason: 'TerminalView should shrink when IME opens',
+      );
+      expect(
+        controller.terminal.viewHeight,
+        initialViewHeight,
+        reason: 'VT buffer must not resize before the 250ms flush',
+      );
+      expect(session.resizes.length, initialRemoteResizes);
+
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(controller.terminal.viewHeight, initialViewHeight);
+      expect(session.resizes.length, initialRemoteResizes);
+
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(
+        controller.terminal.viewHeight,
+        lessThan(initialViewHeight),
+        reason: 'after 250ms the VT buffer must match the shrunk viewport',
+      );
+      expect(
+        session.resizes.length,
+        initialRemoteResizes + 1,
+        reason: 'remote window-change is sent once at flush',
+      );
+    },
+  );
+
+  testWidgets(
     'onToggleKeyboard in TerminalPage handles show and dismiss with diagnostics and postFrame retry',
     (tester) async {
       final themeController = ThemeController(InMemoryThemePreferences());

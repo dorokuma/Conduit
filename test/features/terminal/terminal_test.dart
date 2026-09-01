@@ -57,6 +57,138 @@ void main() {
       expect(controller.buildHerdrCommandForTesting(), isNull);
     });
 
+    test(
+      'handleViewportResized does not commit the VT buffer immediately',
+      () async {
+        final session = TrackableTerminalSession();
+        final controller = TerminalSessionController(
+          host: buildHost('defer-pending'),
+          repository: ImmediateTerminalRepository(session),
+        );
+        addTearDown(controller.dispose);
+        await controller.connect();
+        session.resizes.clear();
+
+        var commits = 0;
+        controller.registerResizeCommitter(() {
+          commits += 1;
+          controller.terminal.resize(40, 12, 8, 16);
+        });
+
+        controller.handleViewportResized(40, 12, 320, 192);
+        expect(commits, 0);
+        expect(session.resizes, isEmpty);
+        expect(controller.terminal.viewHeight, 24);
+      },
+    );
+
+    test(
+      'connect commits deferred viewport size before a delayed session opens',
+      () async {
+        final session = TrackableTerminalSession();
+        final repository = DelayedTerminalRepository(
+          session,
+          delay: const Duration(milliseconds: 400),
+        );
+        final controller = TerminalSessionController(
+          host: buildHost('connect-defer-size'),
+          repository: repository,
+        );
+        addTearDown(controller.dispose);
+
+        controller.registerResizeCommitter(() {
+          controller.terminal.resize(100, 30, 800, 480);
+        });
+        controller.handleViewportResized(100, 30, 800, 480);
+        expect(controller.terminal.viewWidth, 80);
+        expect(controller.terminal.viewHeight, 24);
+
+        await controller.connect();
+
+        expect(repository.connectColumns, 100);
+        expect(repository.connectRows, 30);
+        expect(controller.terminal.viewWidth, 100);
+        expect(controller.terminal.viewHeight, 30);
+        expect(session.resizes, [
+          [100, 30, 800, 480],
+        ]);
+      },
+    );
+
+    test(
+      'unregisterResizeCommitter only clears the matching callback',
+      () async {
+        final session = TrackableTerminalSession();
+        final controller = TerminalSessionController(
+          host: buildHost('unregister-identity'),
+          repository: ImmediateTerminalRepository(session),
+        );
+        addTearDown(controller.dispose);
+        await controller.connect();
+        session.resizes.clear();
+
+        var commits = 0;
+        final owner = _DeferredResizeOwner(() {
+          commits += 1;
+          controller.terminal.resize(40, 12, 8, 16);
+        });
+        // Two independent tear-off evaluations of the same instance method,
+        // matching TerminalSurfaceState registering/unregistering
+        // `_commitDeferredResize` from different lifecycle methods.
+        final registered = owner.commitDeferredResize;
+        final independent = owner.commitDeferredResize;
+        expect(registered, independent);
+        expect(identical(registered, independent), isFalse);
+
+        void other() {}
+
+        controller.registerResizeCommitter(registered);
+        controller.unregisterResizeCommitter(other);
+        controller.handleViewportResized(40, 12, 320, 192);
+        controller.forceResize();
+        expect(commits, greaterThan(0));
+        expect(controller.terminal.viewWidth, 40);
+        expect(controller.terminal.viewHeight, 12);
+
+        final commitsAfterMatch = commits;
+        controller.unregisterResizeCommitter(independent);
+        controller.terminal.resize(80, 24);
+        session.resizes.clear();
+        controller.handleViewportResized(20, 10, 160, 160);
+        controller.forceResize();
+        expect(commits, commitsAfterMatch);
+        expect(controller.terminal.viewWidth, 80);
+        expect(controller.terminal.viewHeight, 24);
+      },
+    );
+
+    test(
+      'forceResize commits locally before sending the current terminal size',
+      () async {
+        final session = TrackableTerminalSession();
+        final controller = TerminalSessionController(
+          host: buildHost('force-resize'),
+          repository: ImmediateTerminalRepository(session),
+        );
+        addTearDown(controller.dispose);
+        await controller.connect();
+        session.resizes.clear();
+
+        controller.registerResizeCommitter(() {
+          controller.terminal.resize(40, 12, 8, 16);
+        });
+        controller.handleViewportResized(40, 12, 320, 192);
+        expect(controller.terminal.viewHeight, 24);
+
+        controller.forceResize();
+        expect(controller.terminal.viewWidth, 40);
+        expect(controller.terminal.viewHeight, 12);
+        expect(session.resizes, [
+          [40, 12, 320, 192],
+        ]);
+      },
+    );
+
     test('ignores a connection that completes after disconnect', () async {
       final repository = PendingTerminalRepository();
       final session = TrackableTerminalSession();
@@ -1836,6 +1968,16 @@ void main() {
       },
     );
   });
+}
+
+/// Mirrors [TerminalSurfaceState] tearing off `_commitDeferredResize` from
+/// distinct lifecycle calls. Two evaluations are `==` but not [identical].
+class _DeferredResizeOwner {
+  _DeferredResizeOwner(this._onCommit);
+
+  final VoidCallback _onCommit;
+
+  void commitDeferredResize() => _onCommit();
 }
 
 class _RecordingTerminalSessionController extends TerminalSessionController {
