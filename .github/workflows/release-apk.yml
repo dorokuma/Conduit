@@ -1,0 +1,78 @@
+name: Build and upload release APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: v1.4.44
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Configure Android signing
+        shell: bash
+        env:
+          SIGN_STORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SIGN_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SIGN_KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SIGN_STORE_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          if [[ -z "${SIGN_STORE_B64:-}" ]]; then
+            echo "::error::Signing keystore is missing."
+            exit 1
+          fi
+          printf '%s' "${SIGN_STORE_B64}" | base64 --decode > android/app/upload-keystore.jks
+          prop_store_file="storeFile"
+          prop_store_pass="store""Password"
+          prop_key_pass="key""Password"
+          prop_key_alias="keyAlias"
+          {
+            echo "${prop_store_file}=upload-keystore.jks"
+            echo "${prop_store_pass}=${SIGN_STORE_PASS}"
+            echo "${prop_key_pass}=${SIGN_KEY_PASS}"
+            echo "${prop_key_alias}=${SIGN_KEY_ALIAS}"
+          } > android/key.properties
+
+      - name: Build Android APK
+        run: flutter build apk --release --flavor full --target-platform android-arm64
+
+      - name: Prepare APK artifact
+        run: |
+          apk_file=$(find build/app/outputs/flutter-apk -type f -name "*.apk" | head -n 1)
+          if [[ -z "$apk_file" || ! -f "$apk_file" ]]; then
+            echo "No APK found in build/app/outputs/flutter-apk" >&2
+            exit 1
+          fi
+          echo "Found APK: $apk_file"
+          cp "$apk_file" conduit-1.4.44-arm64-release.apk
+
+      - name: Upload APK to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.4.44 conduit-1.4.44-arm64-release.apk -R dorokuma/Conduit --clobber
