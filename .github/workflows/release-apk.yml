@@ -1,6 +1,9 @@
 name: Build and upload release APK
 
 on:
+  push:
+    branches:
+      - feat/alt-buffer-scroll-simulate
   workflow_dispatch:
 
 permissions:
