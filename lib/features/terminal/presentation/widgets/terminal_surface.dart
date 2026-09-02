@@ -1,10 +1,13 @@
 import 'dart:async';
 
 import 'package:conduit/core/theme/app_palette.dart';
+import 'package:conduit/features/terminal/presentation/hyperlink_prompt_dialog.dart';
 import 'package:conduit/features/terminal/presentation/terminal_session_controller.dart';
 import 'package:conduit/features/terminal/presentation/widgets/touch_scroll_coalescer.dart';
 import 'package:conduit_vt/conduit_vt.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class TerminalSurface extends StatefulWidget {
   const TerminalSurface({
@@ -262,6 +265,41 @@ class TerminalSurfaceState extends State<TerminalSurface> {
     widget.session.terminal.textInput(sequence * pages.abs());
   }
 
+  Future<void> _onTerminalTapUp(
+    TapUpDetails details,
+    CellOffset offset,
+  ) async {
+    final uri = widget.session.terminal.getHyperlinkAt(offset);
+    if (uri == null || uri.isEmpty) return;
+
+    final confirmed = await showHyperlinkPromptDialog(
+      context: context,
+      uri: uri,
+    );
+    if (confirmed == true && mounted) {
+      final parsedUri = Uri.tryParse(uri);
+      var launched = false;
+      if (parsedUri != null) {
+        try {
+          launched = await launchUrl(
+            parsedUri,
+            mode: LaunchMode.externalApplication,
+          );
+        } on PlatformException {
+          launched = false;
+        } catch (_) {
+          launched = false;
+        }
+      }
+
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open link')),
+        );
+      }
+    }
+  }
+
   // ── build ──
 
   @override
@@ -301,6 +339,7 @@ class TerminalSurfaceState extends State<TerminalSurface> {
               onViewportSizeChanged: _handleViewportSizeChanged,
               simulateScroll: !isHerdr,
               onTouchScroll: isHerdr ? _onTerminalTouchScroll : null,
+              onTapUp: _onTerminalTapUp,
               // herdr 会话主要是 TUI 交互：点选词、点链接、点按钮。默认
               // 点终端会弹软键盘，遮住 TUI、抢焦点。这里传 true 让
               // TerminalView 跳过 _onTapUp 里的 focus + openInputConnection，
