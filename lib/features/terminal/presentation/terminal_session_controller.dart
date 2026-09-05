@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit/core/app_failure.dart';
+import 'package:conduit/core/logging/app_logger.dart';
 import 'package:conduit/core/theme/terminal_appearance.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
 import 'package:conduit/features/terminal/domain/network_connectivity.dart';
@@ -16,6 +17,8 @@ import 'package:conduit/features/terminal/presentation/terminal_keyboard_control
 import 'package:conduit_vt/conduit_vt.dart';
 import 'package:flutter/foundation.dart';
 
+// [PRIVACY RED LINE]: Strictly prohibit logging terminal stream data,
+// user keystrokes, passwords, private keys, or command contents.
 enum TerminalConnectionStatus {
   idle,
   connecting,
@@ -137,6 +140,11 @@ class TerminalSessionController extends ChangeNotifier {
     _outputFilter.reset();
     _predictiveEcho.reset();
     _status = TerminalConnectionStatus.connecting;
+    AppLogger.ssh('Connect terminal session', metadata: {
+      'host': host.name,
+      'port': host.port,
+      'is_local': host.isLocal,
+    });
     terminal.write(
       host.isLocal
           ? 'Starting ${host.name}...\r\n'
@@ -219,6 +227,9 @@ class TerminalSessionController extends ChangeNotifier {
       }
 
       _status = TerminalConnectionStatus.connected;
+      AppLogger.ssh('Terminal session connected', metadata: {
+        'host': host.name,
+      });
       notifyListeners();
       _startHerdrIfConfigured(session);
       _runConnectSnippetIfConfigured(session);
@@ -243,6 +254,9 @@ class TerminalSessionController extends ChangeNotifier {
         _status == TerminalConnectionStatus.idle) {
       return;
     }
+    AppLogger.ssh('Disconnect terminal session', metadata: {
+      'host': host.name,
+    });
     _disconnecting = true;
     _connectionGeneration += 1;
 
@@ -564,6 +578,11 @@ class TerminalSessionController extends ChangeNotifier {
     final session = _session;
     if (session == null) return;
     _resizeCommitter?.call();
+    AppLogger.ssh('Terminal resize', metadata: {
+      'host': host.name,
+      'columns': _pendingColumns,
+      'rows': _pendingRows,
+    });
     if (kDebugMode) {
       debugPrint(
         '[term ${host.name}] -> server ${_pendingColumns}x$_pendingRows',
@@ -576,6 +595,7 @@ class TerminalSessionController extends ChangeNotifier {
     if (_disposed || _status != TerminalConnectionStatus.connected) {
       return;
     }
+    AppLogger.w('TerminalSession', 'Stream error on ${host.name}: $error', error: error, stackTrace: stackTrace);
     terminal.write('\r\n$error\r\n');
     _status = TerminalConnectionStatus.failed;
     notifyListeners();
@@ -585,6 +605,7 @@ class TerminalSessionController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
+    AppLogger.w('TerminalSession', 'Terminal connection failed for ${host.name}: $message');
     _status = TerminalConnectionStatus.failed;
     terminal.write('\r\n$message\r\n');
     notifyListeners();

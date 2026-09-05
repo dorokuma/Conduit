@@ -16,6 +16,7 @@ class ThemePreferences {
     this.terminalSnippets = const [],
     this.showLocalShell = true,
     this.terminalEnterSequence = TerminalEnterSequence.cr,
+    this.verboseLogging = false,
   });
 
   final ThemeMode themeMode;
@@ -26,6 +27,7 @@ class ThemePreferences {
   final List<TerminalSnippet> terminalSnippets;
   final bool showLocalShell;
   final TerminalEnterSequence terminalEnterSequence;
+  final bool verboseLogging;
 }
 
 class ThemePreferencesRepository {
@@ -43,6 +45,7 @@ class ThemePreferencesRepository {
   static const _terminalSnippetsKey = 'conduit.terminal_snippets.v1';
   static const _showLocalShellKey = 'conduit.show_local_shell.v1';
   static const _terminalEnterSequenceKey = 'conduit.terminal_enter_sequence.v1';
+  static const _verboseLoggingKey = 'conduit.verbose_logging.v1';
 
   final FlutterSecureStorage _storage;
 
@@ -65,6 +68,7 @@ class ThemePreferencesRepository {
     final rawTerminalEnterSequence = await _storage.read(
       key: _terminalEnterSequenceKey,
     );
+    final rawVerboseLogging = await _storage.read(key: _verboseLoggingKey);
     final terminalFontSize = double.tryParse(rawTerminalFontSize ?? '');
     final terminalKeyboardRows = _appendUnseenBuiltIns(
       _parseTerminalKeyboardRows(
@@ -97,6 +101,7 @@ class ThemePreferencesRepository {
         (sequence) => sequence.name == rawTerminalEnterSequence,
         orElse: () => TerminalEnterSequence.cr,
       ),
+      verboseLogging: rawVerboseLogging == 'true',
     );
   }
 
@@ -142,6 +147,10 @@ class ThemePreferencesRepository {
     await _storage.write(
       key: _terminalEnterSequenceKey,
       value: preferences.terminalEnterSequence.name,
+    );
+    await _storage.write(
+      key: _verboseLoggingKey,
+      value: preferences.verboseLogging.toString(),
     );
   }
 

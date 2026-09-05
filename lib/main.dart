@@ -1,5 +1,9 @@
 import 'dart:async';
+import 'dart:isolate';
 
+import 'package:conduit/core/logging/app_logger.dart';
+import 'package:conduit/core/logging/app_route_observer.dart';
+import 'package:conduit/core/logging/log_service.dart';
 import 'package:conduit/core/presentation/system_navigation_insets.dart';
 import 'package:conduit/core/theme/app_theme.dart';
 import 'package:conduit/core/theme/theme_controller.dart';
@@ -11,6 +15,7 @@ import 'package:conduit/features/backup/data/app_backup_service.dart';
 import 'package:conduit/features/hosts/data/secure_saved_hosts_repository.dart';
 import 'package:conduit/features/hosts/presentation/hosts_controller.dart';
 import 'package:conduit/features/hosts/presentation/hosts_page.dart';
+import 'package:conduit/features/local_shell/data/local_shell_platform.dart';
 import 'package:conduit/features/local_shell/data/local_terminal_repository.dart';
 import 'package:conduit/features/local_shell/local_shell_licenses.dart';
 import 'package:conduit/features/local_shell/presentation/local_shell_controller.dart';
@@ -34,60 +39,96 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  registerLocalShellLicenses();
-  unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  const secureStorage = FlutterSecureStorage();
-  final themeController = ThemeController(
-    const ThemePreferencesRepository(secureStorage),
-  );
-  final lockController = AppLockController(LocalAppAuthenticator());
-  final hostsController = HostsController(
-    const SecureSavedHostsRepository(secureStorage),
-  );
-  final promptCoordinator = HostKeyPromptCoordinator();
-  final hostKeyVerifier = SecureHostKeyVerifier(
-    secureStorage,
-    promptCoordinator,
-  );
-  final localShellController = LocalShellController();
-  final terminalRepository = RoutingTerminalRepository(
-    ssh: DartSshTerminalRepository(hostKeyVerifier),
-    mosh: MoshTerminalRepository(hostKeyVerifier),
-    local: LocalTerminalRepository(
-      resolveLaunch: localShellController.requireLaunch,
-    ),
-  );
-  final workspaceController = TerminalWorkspaceController(
-    terminalRepository,
-    ConnectivityPlusNetwork(),
-  );
-  final sftpRepository = DartSshSftpRepository(hostKeyVerifier);
-  final backupService = AppBackupService(
-    hostsController: hostsController,
-    themeController: themeController,
-    hostKeyVerifier: hostKeyVerifier,
-  );
-  const fileExport = FilePickerFileExport();
+    // 1. Flutter framework error capture (preserves console presentation)
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      LogService.instance.recordFlutterError(details);
+    };
 
-  unawaited(themeController.load());
+    // 2. PlatformDispatcher unhandled error capture
+    PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      LogService.instance.recordPlatformError(error, stack);
+      return true;
+    };
 
-  runApp(
-    ConduitApp(
-      themeController: themeController,
-      lockController: lockController,
+    // 3. Isolate error listener
+    final isolateReceivePort = RawReceivePort((dynamic values) {
+      if (values is List && values.length >= 2) {
+        final Object error = values[0] as Object? ?? 'Unknown isolate error';
+        final stack = values[1] is StackTrace
+            ? values[1] as StackTrace
+            : StackTrace.fromString(values[1].toString());
+        LogService.instance.recordIsolateError(error, stack);
+      }
+    });
+    Isolate.current.addErrorListener(isolateReceivePort.sendPort);
+
+    // Initialize LogService with device ABI detection
+    String? customAbi;
+    try {
+      final env = await const LocalShellPlatform().load();
+      customAbi = env?.supportedAbis.join(', ');
+    } catch (_) {}
+
+    await LogService.instance.init(customAbi: customAbi);
+
+    registerLocalShellLicenses();
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+
+    const secureStorage = FlutterSecureStorage();
+    final themeController = ThemeController(
+      const ThemePreferencesRepository(secureStorage),
+    );
+    final lockController = AppLockController(LocalAppAuthenticator());
+    final hostsController = HostsController(
+      const SecureSavedHostsRepository(secureStorage),
+    );
+    final promptCoordinator = HostKeyPromptCoordinator();
+    final hostKeyVerifier = SecureHostKeyVerifier(
+      secureStorage,
+      promptCoordinator,
+    );
+    final localShellController = LocalShellController();
+    final terminalRepository = RoutingTerminalRepository(
+      ssh: DartSshTerminalRepository(hostKeyVerifier),
+      mosh: MoshTerminalRepository(hostKeyVerifier),
+      local: LocalTerminalRepository(
+        resolveLaunch: localShellController.requireLaunch,
+      ),
+    );
+    final workspaceController = TerminalWorkspaceController(
+      terminalRepository,
+      ConnectivityPlusNetwork(),
+    );
+    final sftpRepository = DartSshSftpRepository(hostKeyVerifier);
+    final backupService = AppBackupService(
       hostsController: hostsController,
-      terminalRepository: terminalRepository,
-      workspaceController: workspaceController,
-      localShellController: localShellController,
+      themeController: themeController,
       hostKeyVerifier: hostKeyVerifier,
-      promptCoordinator: promptCoordinator,
-      sftpRepository: sftpRepository,
-      backupService: backupService,
-      fileExport: fileExport,
-    ),
-  );
+    );
+    const fileExport = FilePickerFileExport();
+
+    unawaited(themeController.load());
+
+    runApp(
+      ConduitApp(
+        themeController: themeController,
+        lockController: lockController,
+        hostsController: hostsController,
+        terminalRepository: terminalRepository,
+        workspaceController: workspaceController,
+        localShellController: localShellController,
+        hostKeyVerifier: hostKeyVerifier,
+        promptCoordinator: promptCoordinator,
+        sftpRepository: sftpRepository,
+        backupService: backupService,
+        fileExport: fileExport,
+      ),
+    );
+  }, LogService.instance.recordUnhandledError);
 }
 
 class ConduitApp extends StatefulWidget {
@@ -147,12 +188,16 @@ class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycleState = state;
+    AppLogger.i('AppLifecycle', 'State changed to: ${state.name}');
     _syncBackgroundKeepalive();
 
     if (state == AppLifecycleState.resumed) {
+      LogService.instance.ensureSessionMarker();
       for (final session in widget.workspaceController.sessions) {
         session.forceResize();
       }
+    } else if (state == AppLifecycleState.detached) {
+      LogService.instance.endSessionGracefully();
     }
   }
 
@@ -197,6 +242,7 @@ class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    LogService.instance.endSessionGracefully();
     WidgetsBinding.instance.removeObserver(this);
     widget.workspaceController.removeListener(_syncBackgroundKeepalive);
     widget.themeController.removeListener(_syncTerminalPreferences);
@@ -212,6 +258,7 @@ class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
         return MaterialApp(
           title: 'Conduit',
           debugShowCheckedModeBanner: false,
+          navigatorObservers: [AppRouteObserver()],
           theme: AppTheme.build(
             brightness: Brightness.light,
             palette: widget.themeController.palette,

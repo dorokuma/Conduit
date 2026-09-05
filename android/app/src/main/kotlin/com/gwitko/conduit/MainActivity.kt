@@ -17,10 +17,73 @@ import android.os.IBinder
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
+import android.os.Bundle
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.PrintWriter
+import java.io.StringWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : FlutterFragmentActivity() {
     private lateinit var fidoUsbCtapTransport: FidoUsbCtapTransport
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setupJavaCrashHandler()
+    }
+
+    private fun setupJavaCrashHandler() {
+        val originalHandler = Thread.getDefaultUncaughtExceptionHandler()
+        if (originalHandler is ConduitCrashHandler) {
+            return
+        }
+        Thread.setDefaultUncaughtExceptionHandler(ConduitCrashHandler(originalHandler))
+    }
+
+    private inner class ConduitCrashHandler(
+        private val originalHandler: Thread.UncaughtExceptionHandler?
+    ) : Thread.UncaughtExceptionHandler {
+        override fun uncaughtException(thread: Thread, throwable: Throwable) {
+            try {
+                val logsDir = File(filesDir, "logs")
+                val crashDir = File(logsDir, "crash")
+                if (!crashDir.exists()) {
+                    crashDir.mkdirs()
+                }
+                val timestamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss_SSS", Locale.US).format(Date())
+                val crashFile = File(crashDir, "crash_java_${timestamp}.log")
+                val sw = StringWriter()
+                val pw = PrintWriter(sw)
+                throwable.printStackTrace(pw)
+                val stackTrace = sw.toString()
+
+                val content = buildString {
+                    appendLine("================ FATAL JAVA/ANDROID EXCEPTION ================")
+                    appendLine("Time: ${Date()}")
+                    appendLine("Thread: ${thread.name} (id: ${thread.id})")
+                    appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} (API: ${Build.VERSION.SDK_INT}, OS: ${Build.VERSION.RELEASE})")
+                    appendLine("ABIs: ${Build.SUPPORTED_ABIS.joinToString(", ")}")
+                    appendLine("Exception: ${throwable.javaClass.name}: ${throwable.message}")
+                    appendLine("Stack Trace:")
+                    appendLine(stackTrace)
+                    appendLine("==============================================================")
+                }
+                crashFile.writeText(content)
+
+                // Append to active app.log
+                val appLog = File(logsDir, "app.log")
+                val logTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+                val logEntry = "$logTime [FATAL] [JavaCrash] Thread [${thread.name}]: ${throwable.message}\n$stackTrace\n"
+                appLog.appendText(logEntry)
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            } finally {
+                originalHandler?.uncaughtException(thread, throwable)
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

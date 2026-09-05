@@ -1,3 +1,4 @@
+import 'package:conduit/core/logging/log_exporter.dart';
 import 'package:conduit/core/presentation/conduit_brand.dart';
 import 'package:conduit/core/presentation/system_navigation_insets.dart';
 import 'package:conduit/core/theme/app_palette.dart';
@@ -84,6 +85,10 @@ class _ThemeSheet extends StatelessWidget {
                     const SizedBox(height: 10),
                     _BackupControls(backupService: backupService!),
                   ],
+                  const SizedBox(height: 22),
+                  const ConduitSectionLabel('Diagnostics'),
+                  const SizedBox(height: 10),
+                  _LogControls(controller: controller),
                   const SizedBox(height: 22),
                   const ConduitSectionLabel('Palette'),
                   const SizedBox(height: 10),
@@ -177,6 +182,102 @@ class _BackupControls extends StatelessWidget {
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: () =>
             showBackupSheet(context: context, backupService: backupService),
+      ),
+    );
+  }
+}
+
+class _LogControls extends StatefulWidget {
+  const _LogControls({required this.controller});
+
+  final ThemeController controller;
+
+  @override
+  State<_LogControls> createState() => _LogControlsState();
+}
+
+class _LogControlsState extends State<_LogControls> {
+  bool _exporting = false;
+  static const _exporter = LogExporter();
+
+  Future<void> _handleExport(BuildContext context) async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+
+    try {
+      final result = await _exporter.exportLogs();
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.success
+                ? 'Exported ${result.fileCount} log files (${(result.totalBytes / 1024).toStringAsFixed(1)} KB).'
+                : (result.message ?? 'Export failed.'),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to export logs: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Material(
+      color: colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SwitchListTile(
+            secondary: const Icon(Icons.analytics_outlined),
+            title: const Text('Verbose logging'),
+            subtitle: Text(
+              'Record terminal lifecycle, SSH, proot, and navigation events in addition to crash reports.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            value: widget.controller.verboseLogging,
+            onChanged: widget.controller.setVerboseLogging,
+          ),
+          Divider(
+            height: 1,
+            indent: 16,
+            endIndent: 16,
+            color: colorScheme.outlineVariant,
+          ),
+          ListTile(
+            leading: _exporting
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.receipt_long_rounded),
+            title: const Text('Export diagnostic logs'),
+            subtitle: Text(
+              'Pack local session logs, crash reports, and system metadata into a zip archive.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            trailing: const Icon(Icons.share_rounded),
+            onTap: _exporting ? null : () => _handleExport(context),
+          ),
+        ],
       ),
     );
   }

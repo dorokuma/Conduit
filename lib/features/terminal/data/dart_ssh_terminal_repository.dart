@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:conduit/core/app_failure.dart';
+import 'package:conduit/core/logging/app_logger.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
 import 'package:conduit/features/terminal/data/ssh_client_factory.dart';
 import 'package:conduit/features/terminal/data/ssh_error_formatter.dart';
@@ -9,6 +10,8 @@ import 'package:conduit/features/terminal/domain/ssh_terminal_repository.dart';
 import 'package:conduit/features/terminal/domain/ssh_terminal_session.dart';
 import 'package:dartssh2/dartssh2.dart';
 
+// [PRIVACY RED LINE]: Strictly prohibit logging SSH session data streams,
+// keystrokes, passwords, private keys, or command lines.
 class DartSshTerminalRepository implements SshTerminalRepository {
   const DartSshTerminalRepository(this._hostKeyVerifier);
 
@@ -23,6 +26,12 @@ class DartSshTerminalRepository implements SshTerminalRepository {
     required int columns,
     required int rows,
   }) async {
+    AppLogger.ssh('Initiate SSH connection', metadata: {
+      'host': host.host,
+      'port': host.port,
+      'columns': columns,
+      'rows': rows,
+    });
     SSHClient? client;
     try {
       client = await _clientFactory.connect(host);
@@ -31,8 +40,13 @@ class DartSshTerminalRepository implements SshTerminalRepository {
         pty: SSHPtyConfig(width: columns, height: rows),
       );
 
+      AppLogger.ssh('SSH connection established', metadata: {
+        'host': host.host,
+        'port': host.port,
+      });
       return DartSshTerminalSession(client: client, shell: shell);
     } catch (error) {
+      AppLogger.w('SSH', 'SSH connection failed to ${host.host}:${host.port}: $error');
       client?.close();
       throw AppFailure(
         'Could not connect to ${host.host}:${host.port}.',
