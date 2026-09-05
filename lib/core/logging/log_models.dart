@@ -100,3 +100,82 @@ class SessionInfo {
     };
   }
 }
+
+/// Authoritative exit information returned from Android OS ApplicationExitInfo (API 30+).
+class ProcessExitInfo {
+  const ProcessExitInfo({
+    required this.reason,
+    required this.reasonName,
+    this.description,
+    this.timestamp,
+    this.pid,
+    this.status,
+    this.importance,
+    this.pss,
+    this.rss,
+    this.tombstone,
+  });
+
+  factory ProcessExitInfo.fromMap(Map<dynamic, dynamic> map) {
+    return ProcessExitInfo(
+      reason: (map['reason'] as num?)?.toInt() ?? 0,
+      reasonName: map['reasonName'] as String? ?? 'REASON_UNKNOWN',
+      description: map['description'] as String?,
+      timestamp: (map['timestamp'] as num?)?.toInt(),
+      pid: (map['pid'] as num?)?.toInt(),
+      status: (map['status'] as num?)?.toInt(),
+      importance: (map['importance'] as num?)?.toInt(),
+      pss: (map['pss'] as num?)?.toInt(),
+      rss: (map['rss'] as num?)?.toInt(),
+      tombstone: map['tombstone'] as String?,
+    );
+  }
+
+  // Standard ApplicationExitInfo reason constants (API 30+)
+  static const int reasonUnknown = 0;
+  static const int reasonExitSelf = 1;
+  static const int reasonSignaled = 2;
+  static const int reasonLowMemory = 3;
+  static const int reasonCrash = 4;
+  static const int reasonCrashNative = 5;
+  static const int reasonAnr = 6;
+  static const int reasonInitializationFailure = 7;
+  static const int reasonPermissionChange = 8;
+  static const int reasonExcessiveResourceUsage = 9;
+  static const int reasonUserRequested = 10;
+  static const int reasonUserStopped = 11;
+  static const int reasonDependencyDied = 12;
+  static const int reasonOther = 13;
+  static const int reasonFreezer = 14;
+  static const int reasonPackageStateChange = 15;
+  static const int reasonPackageUpdated = 16;
+  static const int reasonMemoryLimiter = 17;
+  static const int reasonAnomaly = 18;
+
+  final int reason;
+  final String reasonName;
+  final String? description;
+  final int? timestamp;
+  final int? pid;
+  final int? status;
+  final int? importance;
+  final int? pss;
+  final int? rss;
+  final String? tombstone;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'reason': reason,
+      'reasonName': reasonName,
+      if (description != null) 'description': description,
+      if (timestamp != null) 'timestamp': timestamp,
+      if (pid != null) 'pid': pid,
+      if (status != null) 'status': status,
+      if (importance != null) 'importance': importance,
+      if (pss != null) 'pss': pss,
+      if (rss != null) 'rss': rss,
+      if (tombstone != null) 'tombstone': tombstone,
+    };
+  }
+}
+

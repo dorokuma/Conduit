@@ -6,16 +6,31 @@ import 'package:conduit/core/logging/app_route_observer.dart';
 import 'package:conduit/core/logging/log_exporter.dart';
 import 'package:conduit/core/logging/log_models.dart';
 import 'package:conduit/core/logging/log_service.dart';
+import 'package:conduit/core/theme/theme_controller.dart';
+import 'package:conduit/features/app_lock/presentation/app_lock_controller.dart';
+import 'package:conduit/features/backup/data/app_backup_service.dart';
+import 'package:conduit/features/hosts/presentation/hosts_controller.dart';
+import 'package:conduit/features/local_shell/presentation/local_shell_controller.dart';
+import 'package:conduit/features/terminal/presentation/host_key_prompt_coordinator.dart';
+import 'package:conduit/features/terminal/presentation/terminal_workspace_controller.dart';
+import 'package:conduit/main.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
+
+import '../support/test_doubles.dart';
 
 void main() {
   late Directory tempTestDir;
 
   setUp(() async {
     tempTestDir = await Directory.systemTemp.createTemp('conduit_log_test_');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('conduit/exit_info'),
+      (call) async => null,
+    );
     PackageInfo.setMockInitialValues(
       appName: '',
       packageName: '',
@@ -26,6 +41,10 @@ void main() {
   });
 
   tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('conduit/exit_info'),
+      null,
+    );
     await LogService.instance.dispose();
     PackageInfo.setMockInitialValues(
       appName: '',
@@ -123,7 +142,7 @@ void main() {
       expect(reportText, contains('Version change detected (likely app update / reinstall / overwrite), not a confirmed crash.'));
       expect(reportText, contains('Last Log Timestamp: 2026-09-01 12:34:56.789'));
       expect(reportText, contains('Previous App Version: 1.4.43+68'));
-      expect(reportText, contains('Current App Version: ${LogService.appVersion}'));
+      expect(reportText, contains('Current App Version: ${LogService.defaultAppVersion}'));
     });
 
     test('initializes with runtime appVersion from PackageInfo when available', () async {
@@ -158,6 +177,59 @@ void main() {
 
       expect(LogService.instance.currentAppVersion, equals(LogService.defaultAppVersion));
       expect(LogService.instance.currentSession?.appVersion, equals(LogService.defaultAppVersion));
+    });
+
+    test('falls back to defaultAppVersion and logs warning when PackageInfo times out (>400ms)', () async {
+      await LogService.instance.init(
+        overrideDir: tempTestDir,
+        packageInfoLoader: () async {
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+          return PackageInfo(
+            appName: 'Conduit',
+            packageName: 'com.gwitko.conduit',
+            version: '2.0.0',
+            buildNumber: '99',
+          );
+        },
+      );
+      expect(LogService.instance.currentAppVersion, equals(LogService.defaultAppVersion));
+
+      final activeLog = File(p.join(tempTestDir.path, 'logs', 'app.log'));
+      expect(activeLog.existsSync(), isTrue);
+      final content = activeLog.readAsStringSync();
+      expect(content, contains('[WARN] [Session] appVersion fallback to frozen constant'));
+    });
+
+    test('falls back to defaultAppVersion and logs warning when PackageInfo throws error', () async {
+      await LogService.instance.init(
+        overrideDir: tempTestDir,
+        packageInfoLoader: () async {
+          throw PlatformException(code: 'PKG_ERR', message: 'Simulated package info failure');
+        },
+      );
+      expect(LogService.instance.currentAppVersion, equals(LogService.defaultAppVersion));
+
+      final activeLog = File(p.join(tempTestDir.path, 'logs', 'app.log'));
+      expect(activeLog.existsSync(), isTrue);
+      final content = activeLog.readAsStringSync();
+      expect(content, contains('[WARN] [Session] appVersion fallback to frozen constant'));
+    });
+
+    test('dispose preserves currentAppVersion instead of resetting to defaultAppVersion', () async {
+      PackageInfo.setMockInitialValues(
+        appName: 'Conduit',
+        packageName: 'com.dorokuma.conduit',
+        version: '2.1.0',
+        buildNumber: '88',
+        buildSignature: '',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+      expect(LogService.instance.currentAppVersion, equals('2.1.0+88'));
+
+      await LogService.instance.dispose();
+      // Should retain 2.1.0+88 rather than resetting to defaultAppVersion
+      expect(LogService.instance.currentAppVersion, equals('2.1.0+88'));
     });
 
     test('version mismatch detects upgrade from previous session when runtime appVersion changes', () async {
@@ -245,6 +317,622 @@ void main() {
       final lastCrash = emergencyFiles.last.readAsStringSync();
       expect(lastCrash, contains('PreInit Emergency Failure'));
       expect(lastCrash, contains('preInitZone'));
+    });
+  });
+
+  group('ApplicationExitInfo Bridge & Abnormal Exit Tests', () {
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        null,
+      );
+    });
+
+    test('confirms native crash via REASON_CRASH_NATIVE with tombstone file and memory attribution', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonCrashNative,
+              'reasonName': 'REASON_CRASH_NATIVE',
+              'description': 'signal 11 (SIGSEGV), code 1, fault addr 0xdeadbeef',
+              'timestamp': 1788260000000,
+              'pid': 12345,
+              'status': 11,
+              'importance': 100,
+              'pss': 256000,
+              'rss': 128000,
+              'tombstone': 'tombstone_1788260000000.bin',
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"native_crashed_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_native_crashed_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+
+      expect(reportText, contains('Status: Confirmed native crash (REASON_CRASH_NATIVE)'));
+      expect(reportText, contains('OS Exit Reason: REASON_CRASH_NATIVE (code: 5)'));
+      expect(reportText, contains('OS Exit Description: signal 11 (SIGSEGV), code 1, fault addr 0xdeadbeef'));
+      expect(reportText, contains('OS Exit PID: 12345'));
+      expect(reportText, contains('OS Exit Status: 11'));
+      expect(reportText, contains('OS Exit PSS: 256000 KB'));
+      expect(reportText, contains('OS Exit RSS: 128000 KB'));
+      expect(reportText, contains('Tombstone: tombstone_1788260000000.bin'));
+      expect(reportText, contains('Root Cause Hint: Authoritative OS evidence: REASON_CRASH_NATIVE'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      final logContent = activeLog.readAsStringSync();
+      expect(logContent, contains('CONFIRMED NATIVE CRASH (REASON_CRASH_NATIVE)'));
+      expect(logContent, contains('0xdeadbeef'));
+    });
+
+    test('handles tombstone null fallback gracefully when overwritten by OS ring buffer', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonCrashNative,
+              'reasonName': 'REASON_CRASH_NATIVE',
+              'timestamp': 1788260000000,
+              'pid': 12345,
+              'status': 11,
+              'tombstone': null,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"overwritten_trace_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_overwritten_trace_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Tombstone: tombstone 已被系统覆盖'));
+    });
+
+    test('confirms Java crash via REASON_CRASH', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonCrash,
+              'reasonName': 'REASON_CRASH',
+              'timestamp': 1788260000000,
+              'pid': 23456,
+              'status': 1,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"java_crash_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_java_crash_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: Confirmed Java crash (REASON_CRASH)'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('Java crash (REASON_CRASH)'));
+    });
+
+    test('confirms ANR via REASON_ANR', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonAnr,
+              'reasonName': 'REASON_ANR',
+              'timestamp': 1788260000000,
+              'pid': 34567,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"anr_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_anr_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: Application Not Responding (REASON_ANR)'));
+    });
+
+    test('confirms LowMemoryKiller foreground termination via REASON_LOW_MEMORY', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonLowMemory,
+              'reasonName': 'REASON_LOW_MEMORY',
+              'importance': 100, // Foreground
+              'timestamp': 1788260000000,
+              'pid': 45678,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"lmk_fg_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_lmk_fg_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: Killed by Low Memory Killer (REASON_LOW_MEMORY)'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('CRITICAL: Previous session (id: lmk_fg_session) terminated by Low Memory Killer (REASON_LOW_MEMORY)'));
+    });
+
+    test('downgrades LowMemoryKiller cached/background termination via REASON_LOW_MEMORY', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonLowMemory,
+              'reasonName': 'REASON_LOW_MEMORY',
+              'importance': 400, // Cached / Background
+              'timestamp': 1788260000000,
+              'pid': 45679,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"lmk_cached_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_lmk_cached_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: 后台进程被系统例行回收，非确定崩溃 (REASON_LOW_MEMORY)'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('NOTICE: Previous session (id: lmk_cached_session) 后台进程被系统例行回收，非确定崩溃'));
+    });
+
+    test('confirms signal termination via REASON_SIGNALED with neutral wording and SIGKILL hint', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonSignaled,
+              'reasonName': 'REASON_SIGNALED',
+              'status': 9,
+              'timestamp': 1788260000000,
+              'pid': 56789,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"signal_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_signal_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: 异常终止：被 OS 信号杀死 (REASON_SIGNALED)'));
+      expect(reportText, contains('status=9(SIGKILL) 在部分设备上可能是系统内存管理行为而非代码缺陷。'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('CRITICAL: Previous session (id: signal_session) 异常终止：被 OS 信号杀死 (REASON_SIGNALED, status: 9)'));
+    });
+
+    test('guards against stale exit record timestamp and treats attribution failure as UNKNOWN', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonCrashNative,
+              'reasonName': 'REASON_CRASH_NATIVE',
+              'timestamp': 1700000000000, // Ancient timestamp before session startTime
+              'pid': 99999,
+              'status': 11,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"stale_timestamp_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_stale_timestamp_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+
+      expect(reportText, contains('Status: 归因失败：OS 退出记录早于会话启动时间 (treated as UNKNOWN)'));
+      expect(reportText, contains('Root Cause Hint: OS exit record timestamp precedes session start time. Stale exit record from prior session/reboot discarded; treated as UNKNOWN.'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('attribution failed, treated as UNKNOWN'));
+    });
+
+    test('confirms memory limiter termination via REASON_MEMORY_LIMITER (code 17) in confirmed group', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonMemoryLimiter,
+              'reasonName': 'REASON_MEMORY_LIMITER',
+              'timestamp': 1788260000000,
+              'pid': 55555,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"memory_limiter_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 15","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_memory_limiter_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: Killed by Memory Limiter (REASON_MEMORY_LIMITER)'));
+      expect(reportText, contains('OS Exit Reason: REASON_MEMORY_LIMITER (code: 17)'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('CRITICAL: Previous session (id: memory_limiter_session) terminated by Memory Limiter (REASON_MEMORY_LIMITER)'));
+    });
+
+    test('downgrades anomaly exit via REASON_ANOMALY (code 18) in downgrade group', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonAnomaly,
+              'reasonName': 'REASON_ANOMALY',
+              'timestamp': 1788260000000,
+              'pid': 66666,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"anomaly_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_anomaly_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: 异常退出原因不明 (REASON_ANOMALY)'));
+      expect(reportText, contains('OS Exit Reason: REASON_ANOMALY (code: 18)'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('NOTICE: Previous session (id: anomaly_session) 异常退出原因不明 (REASON_ANOMALY)'));
+    });
+
+    test('downgrades wording for non-crash exits including REASON_USER_REQUESTED, REASON_FREEZER, and REASON_PACKAGE_UPDATED', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonFreezer,
+              'reasonName': 'REASON_FREEZER',
+              'timestamp': 1788260000000,
+              'pid': 67890,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"freezer_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_freezer_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: Non-crash termination (REASON_FREEZER)'));
+      expect(reportText, contains('OS Exit Reason: REASON_FREEZER (code: 14)'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      final logContent = activeLog.readAsStringSync();
+      expect(logContent, contains('NOTICE: Previous session (id: freezer_session) terminated without clean exit marker due to non-crash event (REASON_FREEZER), not a confirmed crash.'));
+    });
+
+    test('formats INITIALIZATION_FAILURE and UNKNOWN with neutral non-crash wording', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonInitializationFailure,
+              'reasonName': 'REASON_INITIALIZATION_FAILURE',
+              'timestamp': 1788260000000,
+              'pid': 77777,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"init_fail_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_init_fail_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: OS 未归类/初始化故障，无法定性 (REASON_INITIALIZATION_FAILURE)'));
+
+      final activeLog = File(p.join(logDir.path, 'app.log'));
+      expect(activeLog.readAsStringSync(), contains('OS 未归类/初始化故障，无法定性'));
+    });
+
+    test('handles unknown numeric reason codes by falling back to neutral wording and retaining code', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': 99,
+              'reasonName': 'REASON_UNKNOWN',
+              'timestamp': 1788260000000,
+              'pid': 88888,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"unknown_code_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_unknown_code_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: OS 未归类/初始化故障，无法定性 (REASON_UNKNOWN)'));
+      expect(reportText, contains('OS Exit Reason: REASON_UNKNOWN (code: 99)'));
+    });
+
+    test('verifies ProcessExitInfo serialization roundtrip and field mappings', () {
+      final exitInfo = ProcessExitInfo.fromMap({
+        'reason': ProcessExitInfo.reasonMemoryLimiter,
+        'reasonName': 'REASON_MEMORY_LIMITER',
+        'description': 'Memory limit exceeded',
+        'timestamp': 1788260000000,
+        'pid': 11223,
+        'status': 0,
+        'importance': 100,
+        'pss': 512000,
+        'rss': 256000,
+        'tombstone': 'tombstone_1788260000000.bin',
+      });
+
+      expect(exitInfo.reason, equals(17));
+      expect(exitInfo.reasonName, equals('REASON_MEMORY_LIMITER'));
+      expect(exitInfo.pss, equals(512000));
+      expect(exitInfo.rss, equals(256000));
+      expect(exitInfo.tombstone, equals('tombstone_1788260000000.bin'));
+
+      final map = exitInfo.toMap();
+      expect(map['reason'], equals(17));
+      expect(map['reasonName'], equals('REASON_MEMORY_LIMITER'));
+      expect(map['pss'], equals(512000));
+      expect(map['rss'], equals(256000));
+      expect(map['tombstone'], equals('tombstone_1788260000000.bin'));
+    });
+
+    test('does not report tombstone placeholder for non-trace-eligible reasons', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonUserRequested,
+              'reasonName': 'REASON_USER_REQUESTED',
+              'timestamp': 1788260000000,
+              'pid': 33333,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"no_tombstone_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_no_tombstone_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, isNot(contains('Tombstone:')));
+    });
+
+    test('prioritizes OS evidence over version heuristic when both exist', () async {
+      // Version changed from 1.4.43+68 to 1.5.0+70, but OS reports confirmed native crash
+      PackageInfo.setMockInitialValues(
+        appName: 'Conduit',
+        packageName: 'com.dorokuma.conduit',
+        version: '1.5.0',
+        buildNumber: '70',
+        buildSignature: '',
+      );
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          if (call.method == 'getLastExitInfo') {
+            return <String, dynamic>{
+              'reason': ProcessExitInfo.reasonCrashNative,
+              'reasonName': 'REASON_CRASH_NATIVE',
+              'description': 'signal 7 (SIGBUS), code 2',
+              'timestamp': 1788260000000,
+              'pid': 78901,
+            };
+          }
+          return null;
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"prev_upgraded_crashed","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.43+68","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_prev_upgraded_crashed.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+
+      // OS evidence takes precedence
+      expect(reportText, contains('Status: Confirmed native crash (REASON_CRASH_NATIVE)'));
+      expect(reportText, contains('OS Exit Description: signal 7 (SIGBUS), code 2'));
+    });
+
+    test('gracefully degrades to marker heuristic when exit info channel throws', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('conduit/exit_info'),
+        (MethodCall call) async {
+          throw PlatformException(code: 'UNAVAILABLE', message: 'Not supported on this Android version');
+        },
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"legacy_android_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 10","platform":"android","deviceModel":"Pixel 3","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_legacy_android_session.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Status: No clean exit recorded for previous session.'));
     });
   });
 
@@ -384,6 +1072,20 @@ void main() {
       expect(content, contains('[Session] ===== CONDUIT SESSION STARTED'));
     });
 
+    test('filters debug level under Session tag in basic mode while allowing info and above', () async {
+      await LogService.instance.init(overrideDir: tempTestDir);
+      LogService.instance.verboseLogging = false;
+
+      AppLogger.d('Session', 'Suppressed debug session event');
+      AppLogger.i('Session', 'Allowed info session event');
+
+      final activeLog = File(p.join(tempTestDir.path, 'logs', 'app.log'));
+      final content = activeLog.readAsStringSync();
+
+      expect(content, isNot(contains('Suppressed debug session event')));
+      expect(content, contains('Allowed info session event'));
+    });
+
     test('logs AppLifecycle transitions under Session tag in basic mode', () async {
       await LogService.instance.init(overrideDir: tempTestDir);
       LogService.instance.verboseLogging = false;
@@ -455,5 +1157,54 @@ void main() {
       final content = activeLog.readAsStringSync();
       expect(content, contains('[Navigation] Push'));
     });
+
+    testWidgets('ConduitApp reacts to app lifecycle events and logs under Session tag', (tester) async {
+      await LogService.instance.init(overrideDir: tempTestDir);
+      LogService.instance.verboseLogging = false;
+
+      final promptCoordinator = HostKeyPromptCoordinator();
+      final verifier = NoopVerifier();
+      final themeController = ThemeController(InMemoryThemePreferences());
+      final hostsController = HostsController(EmptyHostsRepository());
+
+      await tester.pumpWidget(
+        ConduitApp(
+          lockController: AppLockController(AlwaysAuthenticates()),
+          themeController: themeController,
+          hostsController: hostsController,
+          terminalRepository: NoNetworkTerminalRepository(),
+          workspaceController: TerminalWorkspaceController(
+            NoNetworkTerminalRepository(),
+          ),
+          localShellController: LocalShellController(),
+          hostKeyVerifier: verifier,
+          promptCoordinator: promptCoordinator,
+          sftpRepository: NoNetworkSftpRepository(),
+          backupService: AppBackupService(
+            hostsController: hostsController,
+            themeController: themeController,
+            hostKeyVerifier: verifier,
+          ),
+          fileExport: RecordingFileExport(),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      final activeLog = File(p.join(tempTestDir.path, 'logs', 'app.log'));
+      final content = activeLog.readAsStringSync();
+
+      expect(content, contains('[Session] AppLifecycle state changed to: paused'));
+      expect(content, contains('[Session] AppLifecycle state changed to: resumed'));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 }
+

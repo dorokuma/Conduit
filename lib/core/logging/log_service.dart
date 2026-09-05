@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/core/logging/log_models.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -13,17 +14,22 @@ class LogService {
 
   static final LogService instance = LogService._();
 
+  static const MethodChannel _exitInfoChannel = MethodChannel('conduit/exit_info');
+
   /// Fallback app version constant used when runtime package info is unavailable or fails.
   static const String defaultAppVersion = SessionInfo.fallbackAppVersion;
 
   /// Legacy static constant alias kept for backwards compatibility / fallback reference.
+  @Deprecated('Use LogService.instance.currentAppVersion or LogService.defaultAppVersion instead')
   static const String appVersion = defaultAppVersion;
+
   static const int maxFileSizeBytes = 2 * 1024 * 1024; // 2MB
   static const int maxRotatedLogs = 7;
   static const String activeLogFileName = 'app.log';
   static const String activeSessionFileName = '.session_active';
 
   String _currentAppVersion = defaultAppVersion;
+  ProcessExitInfo? _lastExitInfo;
   Directory? _logDir;
   Directory? _crashDir;
   File? _activeLogFile;
@@ -33,35 +39,65 @@ class LogService {
   bool verboseLogging = false;
 
   String get currentAppVersion => _currentAppVersion;
+  ProcessExitInfo? get lastExitInfo => _lastExitInfo;
   Directory? get logDirectory => _logDir;
   Directory? get crashDirectory => _crashDir;
   SessionInfo? get currentSession => _currentSession;
   bool get isInitialized => _initialized;
 
+  Future<ProcessExitInfo?> _fetchExitInfo() async {
+    if (kIsWeb) return null;
+    try {
+      final result = await _exitInfoChannel
+          .invokeMethod<Map<dynamic, dynamic>>('getLastExitInfo')
+          .timeout(const Duration(milliseconds: 300));
+      if (result != null) {
+        return ProcessExitInfo.fromMap(result);
+      }
+    } catch (_) {
+      // Graceful degradation when channel is unavailable or query fails.
+    }
+    return null;
+  }
+
   Future<void> init({
     Directory? overrideDir,
     String? customAbi,
+    @Deprecated('Pass custom PackageInfo mock instead of overrideAppVersion')
     String? overrideAppVersion,
+    ProcessExitInfo? customExitInfo,
+    Future<PackageInfo> Function()? packageInfoLoader,
   }) async {
     try {
+      String? fallbackWarning;
       String resolvedVersion = defaultAppVersion;
       if (overrideAppVersion != null && overrideAppVersion.isNotEmpty) {
         resolvedVersion = overrideAppVersion;
       } else {
         try {
-          final packageInfo = await PackageInfo.fromPlatform().timeout(
-            const Duration(seconds: 2),
+          final packageInfo = await (packageInfoLoader != null
+                  ? packageInfoLoader()
+                  : PackageInfo.fromPlatform())
+              .timeout(
+            const Duration(milliseconds: 400),
           );
           final v = packageInfo.version.trim();
           final b = packageInfo.buildNumber.trim();
           if (v.isNotEmpty) {
             resolvedVersion = b.isNotEmpty ? '$v+$b' : v;
           }
-        } catch (_) {
+        } catch (e) {
           resolvedVersion = defaultAppVersion;
+          fallbackWarning =
+              'appVersion fallback to frozen constant ($defaultAppVersion); package info resolution failed ($e). Reports may show stale version.';
         }
       }
       _currentAppVersion = resolvedVersion;
+
+      // Query OS ApplicationExitInfo (API 30+)
+      ProcessExitInfo? exitInfo = customExitInfo;
+      exitInfo ??= await _fetchExitInfo();
+      _lastExitInfo = exitInfo;
 
       Directory baseDir;
       if (overrideDir != null) {
@@ -100,11 +136,15 @@ class LogService {
         abi: customAbi,
       );
 
-      _checkPreviousSessionAbnormalExit();
+      _checkPreviousSessionAbnormalExit(exitInfo);
 
       _writeActiveSessionMarker(_currentSession!);
 
       _initialized = true;
+
+      if (fallbackWarning != null) {
+        log(LogLevel.warning, 'Session', fallbackWarning);
+      }
 
       log(
         LogLevel.info,
@@ -164,7 +204,7 @@ class LogService {
     } catch (_) {}
   }
 
-  void _checkPreviousSessionAbnormalExit() {
+  void _checkPreviousSessionAbnormalExit(ProcessExitInfo? exitInfo) {
     if (_activeSessionFile == null || !_activeSessionFile!.existsSync()) return;
 
     try {
@@ -174,9 +214,123 @@ class LogService {
         final prevSession = SessionInfo.fromJson(json);
 
         final isVersionMismatch = prevSession.appVersion != _currentAppVersion;
-        final abnormalMsg = isVersionMismatch
-            ? 'NOTICE: Previous session (id: ${prevSession.sessionId}, version: ${prevSession.appVersion}, current: $_currentAppVersion) terminated without clean exit marker during app version change (likely app update/reinstall), not a confirmed crash.'
-            : 'CRITICAL: Previous session (id: ${prevSession.sessionId}, started: ${prevSession.startTime.toIso8601String()}) terminated abnormally without clean exit marker. Possible native crash (SIGSEGV/SIGBUS/abort), OOM kill, or force close.';
+
+        String abnormalMsg;
+        String statusText;
+        String hintText;
+
+        final sessionStartMs = prevSession.startTime.millisecondsSinceEpoch;
+        final isTimestampStale = exitInfo != null &&
+            exitInfo.timestamp != null &&
+            exitInfo.timestamp! < sessionStartMs;
+
+        if (exitInfo != null && isTimestampStale) {
+          // Guard: OS exit record timestamp precedes current marked session start time (e.g. abrupt power-off/reboot).
+          // Attribution fails; treat as UNKNOWN to prevent blaming an unrelated older crash on this session.
+          abnormalMsg =
+              'CRITICAL: Previous session (id: ${prevSession.sessionId}) terminated abnormally without clean exit marker. OS exit record timestamp (${exitInfo.timestamp}) precedes session start time ($sessionStartMs); attribution failed, treated as UNKNOWN.';
+          statusText = '归因失败：OS 退出记录早于会话启动时间 (treated as UNKNOWN)';
+          hintText =
+              'OS exit record timestamp precedes session start time. Stale exit record from prior session/reboot discarded; treated as UNKNOWN.';
+        } else if (exitInfo != null) {
+          // Priority 1: Authoritative OS exit info
+          switch (exitInfo.reason) {
+            case ProcessExitInfo.reasonCrashNative:
+              abnormalMsg =
+                  'CRITICAL: Previous session (id: ${prevSession.sessionId}, pid: ${exitInfo.pid ?? "unknown"}) terminated due to CONFIRMED NATIVE CRASH (REASON_CRASH_NATIVE). Description: ${exitInfo.description ?? "none"}';
+              statusText = 'Confirmed native crash (REASON_CRASH_NATIVE)';
+              hintText =
+                  'Authoritative OS evidence: REASON_CRASH_NATIVE (description: ${exitInfo.description ?? "none"}, status: ${exitInfo.status ?? "unknown"}).';
+              break;
+            case ProcessExitInfo.reasonCrash:
+              abnormalMsg =
+                  'CRITICAL: Previous session (id: ${prevSession.sessionId}) terminated due to Java crash (REASON_CRASH). Check crash_java_*.log for uncaught exception trace.';
+              statusText = 'Confirmed Java crash (REASON_CRASH)';
+              hintText = 'Authoritative OS evidence: REASON_CRASH (Java uncaught exception).';
+              break;
+            case ProcessExitInfo.reasonAnr:
+              abnormalMsg =
+                  'CRITICAL: Previous session (id: ${prevSession.sessionId}) terminated due to Application Not Responding (REASON_ANR).';
+              statusText = 'Application Not Responding (REASON_ANR)';
+              hintText = 'Authoritative OS evidence: REASON_ANR (main thread unresponsive / killed by OS).';
+              break;
+            case ProcessExitInfo.reasonMemoryLimiter:
+              abnormalMsg =
+                  'CRITICAL: Previous session (id: ${prevSession.sessionId}) terminated by Memory Limiter (REASON_MEMORY_LIMITER). Process exceeded system memory limit.';
+              statusText = 'Killed by Memory Limiter (REASON_MEMORY_LIMITER)';
+              hintText =
+                  'Authoritative OS evidence: REASON_MEMORY_LIMITER (process exceeded system memory limit). Check memory usage and leaks.';
+              break;
+            case ProcessExitInfo.reasonLowMemory:
+              final isCachedOrBackground = exitInfo.importance != null && exitInfo.importance! >= 400;
+              if (isCachedOrBackground) {
+                abnormalMsg =
+                    'NOTICE: Previous session (id: ${prevSession.sessionId}) 后台进程被系统例行回收，非确定崩溃 (REASON_LOW_MEMORY, importance: ${exitInfo.importance}).';
+                statusText = '后台进程被系统例行回收，非确定崩溃 (REASON_LOW_MEMORY)';
+                hintText =
+                    'Authoritative OS evidence: REASON_LOW_MEMORY (cached/background process reclaimed by OS, importance: ${exitInfo.importance}).';
+              } else {
+                abnormalMsg =
+                    'CRITICAL: Previous session (id: ${prevSession.sessionId}) terminated by Low Memory Killer (REASON_LOW_MEMORY). Likely high memory consumption / memory leak.';
+                statusText = 'Killed by Low Memory Killer (REASON_LOW_MEMORY)';
+                hintText =
+                    'Authoritative OS evidence: REASON_LOW_MEMORY (LMK process termination under system memory pressure, importance: ${exitInfo.importance ?? "unknown"}). Check memory usage and leaks.';
+              }
+              break;
+            case ProcessExitInfo.reasonSignaled:
+              abnormalMsg =
+                  'CRITICAL: Previous session (id: ${prevSession.sessionId}) 异常终止：被 OS 信号杀死 (REASON_SIGNALED, status: ${exitInfo.status ?? "unknown"}).';
+              statusText = '异常终止：被 OS 信号杀死 (REASON_SIGNALED)';
+              hintText = exitInfo.status == 9
+                  ? 'Authoritative OS evidence: REASON_SIGNALED (status=9 SIGKILL). Note: status=9(SIGKILL) 在部分设备上可能是系统内存管理行为而非代码缺陷。'
+                  : 'Authoritative OS evidence: REASON_SIGNALED (status/signal: ${exitInfo.status ?? "unknown"}).';
+              break;
+            case ProcessExitInfo.reasonAnomaly:
+              abnormalMsg =
+                  'NOTICE: Previous session (id: ${prevSession.sessionId}) 异常退出原因不明 (REASON_ANOMALY).';
+              statusText = '异常退出原因不明 (REASON_ANOMALY)';
+              hintText =
+                  'Authoritative OS evidence: REASON_ANOMALY (anomalous process termination, reason unknown).';
+              break;
+            case ProcessExitInfo.reasonUserRequested:
+            case ProcessExitInfo.reasonUserStopped:
+            case ProcessExitInfo.reasonExitSelf:
+            case ProcessExitInfo.reasonOther:
+            case ProcessExitInfo.reasonPackageUpdated:
+            case ProcessExitInfo.reasonPackageStateChange:
+            case ProcessExitInfo.reasonPermissionChange:
+            case ProcessExitInfo.reasonExcessiveResourceUsage:
+            case ProcessExitInfo.reasonDependencyDied:
+            case ProcessExitInfo.reasonFreezer:
+              abnormalMsg =
+                  'NOTICE: Previous session (id: ${prevSession.sessionId}) terminated without clean exit marker due to non-crash event (${exitInfo.reasonName}), not a confirmed crash.';
+              statusText = 'Non-crash termination (${exitInfo.reasonName})';
+              hintText = 'Authoritative OS evidence: ${exitInfo.reasonName} (${_getReasonDescription(exitInfo.reason)}).';
+              break;
+            case ProcessExitInfo.reasonInitializationFailure:
+            case ProcessExitInfo.reasonUnknown:
+            default:
+              abnormalMsg =
+                  'NOTICE: Previous session (id: ${prevSession.sessionId}) terminated (${exitInfo.reasonName}): OS 未归类/初始化故障，无法定性。';
+              statusText = 'OS 未归类/初始化故障，无法定性 (${exitInfo.reasonName})';
+              hintText = 'Authoritative OS evidence: ${exitInfo.reasonName} (${_getReasonDescription(exitInfo.reason)}).';
+              break;
+          }
+        } else {
+          // Priority 2: Fallback version mismatch heuristic
+          if (isVersionMismatch) {
+            abnormalMsg =
+                'NOTICE: Previous session (id: ${prevSession.sessionId}, version: ${prevSession.appVersion}, current: $_currentAppVersion) terminated without clean exit marker during app version change (likely app update/reinstall), not a confirmed crash.';
+            statusText = 'Version change detected (likely app update / reinstall / overwrite), not a confirmed crash.';
+            hintText =
+                'App version changed from ${prevSession.appVersion} to $_currentAppVersion. Previous session was likely replaced by update.';
+          } else {
+            abnormalMsg =
+                'CRITICAL: Previous session (id: ${prevSession.sessionId}, started: ${prevSession.startTime.toIso8601String()}) terminated abnormally without clean exit marker. Possible native crash (SIGSEGV/SIGBUS/abort), OOM kill, or force close.';
+            statusText = 'No clean exit recorded for previous session.';
+            hintText = 'Native signal (SIGSEGV/SIGABRT/SIGBUS), LowMemoryKiller (OOM), or process killed by OS.';
+          }
+        }
 
         _writeDirectSync('=== ABNORMAL SESSION TERMINATION DETECTED ===\n$abnormalMsg\n', flush: true);
 
@@ -186,32 +340,109 @@ class LogService {
           final abnormalCrashFile = File(
             p.join(_crashDir!.path, 'abnormal_exit_${prevSession.sessionId}.log'),
           );
-          final statusText = isVersionMismatch
-              ? 'Version change detected (likely app update / reinstall / overwrite), not a confirmed crash.'
-              : 'No clean exit recorded for previous session.';
-          final hintText = isVersionMismatch
-              ? 'App version changed from ${prevSession.appVersion} to $_currentAppVersion. Previous session was likely replaced by update.'
-              : 'Native signal (SIGSEGV/SIGABRT/SIGBUS), LowMemoryKiller (OOM), or process killed by OS.';
 
-          abnormalCrashFile.writeAsStringSync(
-            '================ ABNORMAL TERMINATION REPORT ================\n'
-            'Time: ${DateTime.now().toUtc().toIso8601String()}\n'
-            'Status: $statusText\n'
-            'Previous Session ID: ${prevSession.sessionId}\n'
-            'Previous Start Time: ${prevSession.startTime.toIso8601String()}\n'
-            'Last Log Timestamp: ${lastLogTimestamp ?? "none"}\n'
-            'Previous App Version: ${prevSession.appVersion}\n'
-            'Current App Version: $_currentAppVersion\n'
-            'OS: ${prevSession.platform} ${prevSession.osVersion}\n'
-            'Device: ${prevSession.deviceModel}\n'
-            'ABI: ${prevSession.abi ?? "unknown"}\n'
-            'Root Cause Hint: $hintText\n'
-            '============================================================\n',
-            flush: true,
-          );
+          final reportBuffer = StringBuffer()
+            ..writeln('================ ABNORMAL TERMINATION REPORT ================')
+            ..writeln('Time: ${DateTime.now().toUtc().toIso8601String()}')
+            ..writeln('Status: $statusText')
+            ..writeln('Previous Session ID: ${prevSession.sessionId}')
+            ..writeln('Previous Start Time: ${prevSession.startTime.toIso8601String()}')
+            ..writeln('Last Log Timestamp: ${lastLogTimestamp ?? "none"}')
+            ..writeln('Previous App Version: ${prevSession.appVersion}')
+            ..writeln('Current App Version: $_currentAppVersion')
+            ..writeln('OS: ${prevSession.platform} ${prevSession.osVersion}')
+            ..writeln('Device: ${prevSession.deviceModel}')
+            ..writeln('ABI: ${prevSession.abi ?? "unknown"}');
+
+          if (exitInfo != null) {
+            reportBuffer.writeln('OS Exit Reason: ${exitInfo.reasonName} (code: ${exitInfo.reason})');
+            if (exitInfo.description != null) {
+              reportBuffer.writeln('OS Exit Description: ${exitInfo.description}');
+            }
+            if (exitInfo.pid != null) {
+              reportBuffer.writeln('OS Exit PID: ${exitInfo.pid}');
+            }
+            if (exitInfo.status != null) {
+              reportBuffer.writeln('OS Exit Status: ${exitInfo.status}');
+            }
+            if (exitInfo.timestamp != null) {
+              final exitTime =
+                  DateTime.fromMillisecondsSinceEpoch(exitInfo.timestamp!, isUtc: true).toIso8601String();
+              reportBuffer.writeln('OS Exit Timestamp: ${exitInfo.timestamp} ($exitTime)');
+            }
+            if (exitInfo.importance != null) {
+              reportBuffer.writeln('OS Exit Importance: ${exitInfo.importance}');
+            }
+            if (exitInfo.pss != null) {
+              reportBuffer.writeln('OS Exit PSS: ${exitInfo.pss} KB');
+            }
+            if (exitInfo.rss != null) {
+              reportBuffer.writeln('OS Exit RSS: ${exitInfo.rss} KB');
+            }
+            if (exitInfo.tombstone != null) {
+              reportBuffer.writeln('Tombstone: ${exitInfo.tombstone}');
+            } else if (_isTraceEligibleReason(exitInfo.reason)) {
+              reportBuffer.writeln('Tombstone: tombstone 已被系统覆盖');
+            }
+          }
+
+          reportBuffer
+            ..writeln('Root Cause Hint: $hintText')
+            ..writeln('============================================================');
+
+          abnormalCrashFile.writeAsStringSync(reportBuffer.toString(), flush: true);
         }
       }
     } catch (_) {}
+  }
+
+  static bool _isTraceEligibleReason(int reason) {
+    return reason == ProcessExitInfo.reasonCrashNative ||
+        reason == ProcessExitInfo.reasonCrash ||
+        reason == ProcessExitInfo.reasonAnr ||
+        reason == ProcessExitInfo.reasonSignaled;
+  }
+
+  String _getReasonDescription(int reason) {
+    switch (reason) {
+      case ProcessExitInfo.reasonExitSelf:
+        return 'Process called System.exit() or exit()';
+      case ProcessExitInfo.reasonSignaled:
+        return 'Process was killed by a POSIX signal';
+      case ProcessExitInfo.reasonLowMemory:
+        return 'Process was killed by the system Low Memory Killer';
+      case ProcessExitInfo.reasonCrash:
+        return 'Process crashed due to an unhandled Java exception';
+      case ProcessExitInfo.reasonCrashNative:
+        return 'Process crashed due to a native signal (e.g. SIGSEGV, SIGBUS)';
+      case ProcessExitInfo.reasonAnr:
+        return 'Process was killed due to an Application Not Responding timeout';
+      case ProcessExitInfo.reasonInitializationFailure:
+        return 'Process failed during initialization';
+      case ProcessExitInfo.reasonPermissionChange:
+        return 'Process was killed due to permission revocation or change';
+      case ProcessExitInfo.reasonExcessiveResourceUsage:
+        return 'Process was killed due to excessive CPU, battery, or resource usage';
+      case ProcessExitInfo.reasonUserRequested:
+        return 'User requested process stop (e.g., swipe away in Recents)';
+      case ProcessExitInfo.reasonUserStopped:
+        return 'Process was stopped because the user or profile was stopped';
+      case ProcessExitInfo.reasonDependencyDied:
+        return 'Process was killed because an essential dependency died';
+      case ProcessExitInfo.reasonFreezer:
+        return 'Process was killed due to frozen binder transaction / app freezer';
+      case ProcessExitInfo.reasonPackageStateChange:
+        return 'Process was killed because package was disabled or uninstalled';
+      case ProcessExitInfo.reasonPackageUpdated:
+        return 'Process was killed because package was updated';
+      case ProcessExitInfo.reasonMemoryLimiter:
+        return 'Process was killed by the system memory limiter for exceeding memory thresholds';
+      case ProcessExitInfo.reasonAnomaly:
+        return 'Process was killed due to an anomaly detected by the system';
+      case ProcessExitInfo.reasonOther:
+      default:
+        return 'System or environment termination';
+    }
   }
 
   String? _findLastLogTimestamp() {
@@ -258,9 +489,10 @@ class LogService {
     Object? error,
     StackTrace? stackTrace,
   }) {
-    // Basic mode: logs warning, error, fatal, and Session tag lifecycle events.
+    // Basic mode: logs warning, error, fatal, and Session tag lifecycle events (info and above).
     // Verbose mode: additionally logs info and debug telemetry events.
-    if (!verboseLogging && level.priority < LogLevel.warning.priority && tag != 'Session') {
+    final isSessionLifecycle = tag == 'Session' && level.priority >= LogLevel.info.priority;
+    if (!verboseLogging && level.priority < LogLevel.warning.priority && !isSessionLifecycle) {
       return;
     }
 
@@ -400,7 +632,7 @@ class LogService {
 
   Future<void> dispose() async {
     _initialized = false;
-    _currentAppVersion = defaultAppVersion;
+    _lastExitInfo = null;
     _logDir = null;
     _crashDir = null;
     _activeLogFile = null;
@@ -408,3 +640,4 @@ class LogService {
     _currentSession = null;
   }
 }
+
