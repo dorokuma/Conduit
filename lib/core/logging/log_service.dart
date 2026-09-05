@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/core/logging/log_models.dart';
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -12,12 +13,17 @@ class LogService {
 
   static final LogService instance = LogService._();
 
-  static const String appVersion = '1.4.44+69';
+  /// Fallback app version constant used when runtime package info is unavailable or fails.
+  static const String defaultAppVersion = SessionInfo.fallbackAppVersion;
+
+  /// Legacy static constant alias kept for backwards compatibility / fallback reference.
+  static const String appVersion = defaultAppVersion;
   static const int maxFileSizeBytes = 2 * 1024 * 1024; // 2MB
   static const int maxRotatedLogs = 7;
   static const String activeLogFileName = 'app.log';
   static const String activeSessionFileName = '.session_active';
 
+  String _currentAppVersion = defaultAppVersion;
   Directory? _logDir;
   Directory? _crashDir;
   File? _activeLogFile;
@@ -26,13 +32,37 @@ class LogService {
   bool _initialized = false;
   bool verboseLogging = false;
 
+  String get currentAppVersion => _currentAppVersion;
   Directory? get logDirectory => _logDir;
   Directory? get crashDirectory => _crashDir;
   SessionInfo? get currentSession => _currentSession;
   bool get isInitialized => _initialized;
 
-  Future<void> init({Directory? overrideDir, String? customAbi}) async {
+  Future<void> init({
+    Directory? overrideDir,
+    String? customAbi,
+    String? overrideAppVersion,
+  }) async {
     try {
+      String resolvedVersion = defaultAppVersion;
+      if (overrideAppVersion != null && overrideAppVersion.isNotEmpty) {
+        resolvedVersion = overrideAppVersion;
+      } else {
+        try {
+          final packageInfo = await PackageInfo.fromPlatform().timeout(
+            const Duration(seconds: 2),
+          );
+          final v = packageInfo.version.trim();
+          final b = packageInfo.buildNumber.trim();
+          if (v.isNotEmpty) {
+            resolvedVersion = b.isNotEmpty ? '$v+$b' : v;
+          }
+        } catch (_) {
+          resolvedVersion = defaultAppVersion;
+        }
+      }
+      _currentAppVersion = resolvedVersion;
+
       Directory baseDir;
       if (overrideDir != null) {
         baseDir = overrideDir;
@@ -63,7 +93,7 @@ class LogService {
       _currentSession = SessionInfo(
         sessionId: sessionId,
         startTime: DateTime.now().toUtc(),
-        appVersion: appVersion,
+        appVersion: _currentAppVersion,
         osVersion: Platform.operatingSystemVersion,
         platform: Platform.operatingSystem,
         deviceModel: Platform.localHostname,
@@ -84,7 +114,7 @@ class LogService {
       log(
         LogLevel.info,
         'Session',
-        'Environment: App: $appVersion | OS: ${Platform.operatingSystem} ${Platform.operatingSystemVersion} | ABI: ${customAbi ?? 'unknown'} | Dart: ${Platform.version.split(' ').first}',
+        'Environment: App: $_currentAppVersion | OS: ${Platform.operatingSystem} ${Platform.operatingSystemVersion} | ABI: ${customAbi ?? 'unknown'} | Dart: ${Platform.version.split(' ').first}',
       );
     } catch (e, st) {
       debugPrint('[LogService] Initialization failed: $e\n$st');
@@ -143,9 +173,9 @@ class LogService {
         final json = jsonDecode(raw) as Map<String, dynamic>;
         final prevSession = SessionInfo.fromJson(json);
 
-        final isVersionMismatch = prevSession.appVersion != appVersion;
+        final isVersionMismatch = prevSession.appVersion != _currentAppVersion;
         final abnormalMsg = isVersionMismatch
-            ? 'NOTICE: Previous session (id: ${prevSession.sessionId}, version: ${prevSession.appVersion}, current: $appVersion) terminated without clean exit marker during app version change (likely app update/reinstall), not a confirmed crash.'
+            ? 'NOTICE: Previous session (id: ${prevSession.sessionId}, version: ${prevSession.appVersion}, current: $_currentAppVersion) terminated without clean exit marker during app version change (likely app update/reinstall), not a confirmed crash.'
             : 'CRITICAL: Previous session (id: ${prevSession.sessionId}, started: ${prevSession.startTime.toIso8601String()}) terminated abnormally without clean exit marker. Possible native crash (SIGSEGV/SIGBUS/abort), OOM kill, or force close.';
 
         _writeDirectSync('=== ABNORMAL SESSION TERMINATION DETECTED ===\n$abnormalMsg\n', flush: true);
@@ -160,7 +190,7 @@ class LogService {
               ? 'Version change detected (likely app update / reinstall / overwrite), not a confirmed crash.'
               : 'No clean exit recorded for previous session.';
           final hintText = isVersionMismatch
-              ? 'App version changed from ${prevSession.appVersion} to $appVersion. Previous session was likely replaced by update.'
+              ? 'App version changed from ${prevSession.appVersion} to $_currentAppVersion. Previous session was likely replaced by update.'
               : 'Native signal (SIGSEGV/SIGABRT/SIGBUS), LowMemoryKiller (OOM), or process killed by OS.';
 
           abnormalCrashFile.writeAsStringSync(
@@ -171,7 +201,7 @@ class LogService {
             'Previous Start Time: ${prevSession.startTime.toIso8601String()}\n'
             'Last Log Timestamp: ${lastLogTimestamp ?? "none"}\n'
             'Previous App Version: ${prevSession.appVersion}\n'
-            'Current App Version: $appVersion\n'
+            'Current App Version: $_currentAppVersion\n'
             'OS: ${prevSession.platform} ${prevSession.osVersion}\n'
             'Device: ${prevSession.deviceModel}\n'
             'ABI: ${prevSession.abi ?? "unknown"}\n'
@@ -346,7 +376,7 @@ class LogService {
         ..writeln('Crash Type: $type')
         ..writeln('Summary: $summary')
         ..writeln('Session ID: ${_currentSession?.sessionId ?? "unknown"}')
-        ..writeln('App Version: $appVersion')
+        ..writeln('App Version: $_currentAppVersion')
         ..writeln('OS: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
         ..writeln('Device: ${Platform.localHostname}')
         ..writeln('ABI: ${_currentSession?.abi ?? "unknown"}');
@@ -370,6 +400,7 @@ class LogService {
 
   Future<void> dispose() async {
     _initialized = false;
+    _currentAppVersion = defaultAppVersion;
     _logDir = null;
     _crashDir = null;
     _activeLogFile = null;

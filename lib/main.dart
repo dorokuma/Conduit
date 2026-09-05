@@ -165,6 +165,7 @@ class ConduitApp extends StatefulWidget {
 
 class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
   final _backgroundKeepalive = const TerminalBackgroundKeepalive();
+  final _routeObserver = AppRouteObserver();
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   bool _keepaliveRunning = false;
   int _keepaliveSessionCount = 0;
@@ -188,7 +189,7 @@ class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycleState = state;
-    AppLogger.i('AppLifecycle', 'State changed to: ${state.name}');
+    AppLogger.i('Session', 'AppLifecycle state changed to: ${state.name}');
     _syncBackgroundKeepalive();
 
     if (state == AppLifecycleState.resumed) {
@@ -258,7 +259,7 @@ class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
         return MaterialApp(
           title: 'Conduit',
           debugShowCheckedModeBanner: false,
-          navigatorObservers: [AppRouteObserver()],
+          navigatorObservers: [_routeObserver],
           theme: AppTheme.build(
             brightness: Brightness.light,
             palette: widget.themeController.palette,

@@ -8,6 +8,7 @@ import 'package:conduit/core/logging/log_models.dart';
 import 'package:conduit/core/logging/log_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -15,10 +16,24 @@ void main() {
 
   setUp(() async {
     tempTestDir = await Directory.systemTemp.createTemp('conduit_log_test_');
+    PackageInfo.setMockInitialValues(
+      appName: '',
+      packageName: '',
+      version: '',
+      buildNumber: '',
+      buildSignature: '',
+    );
   });
 
   tearDown(() async {
     await LogService.instance.dispose();
+    PackageInfo.setMockInitialValues(
+      appName: '',
+      packageName: '',
+      version: '',
+      buildNumber: '',
+      buildSignature: '',
+    );
     if (tempTestDir.existsSync()) {
       try {
         tempTestDir.deleteSync(recursive: true);
@@ -109,6 +124,67 @@ void main() {
       expect(reportText, contains('Last Log Timestamp: 2026-09-01 12:34:56.789'));
       expect(reportText, contains('Previous App Version: 1.4.43+68'));
       expect(reportText, contains('Current App Version: ${LogService.appVersion}'));
+    });
+
+    test('initializes with runtime appVersion from PackageInfo when available', () async {
+      PackageInfo.setMockInitialValues(
+        appName: 'Conduit',
+        packageName: 'com.dorokuma.conduit',
+        version: '1.5.0',
+        buildNumber: '70',
+        buildSignature: '',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      expect(LogService.instance.currentAppVersion, equals('1.5.0+70'));
+      expect(LogService.instance.currentSession?.appVersion, equals('1.5.0+70'));
+
+      final activeLog = File(p.join(tempTestDir.path, 'logs', 'app.log'));
+      final content = activeLog.readAsStringSync();
+      expect(content, contains('Environment: App: 1.5.0+70'));
+    });
+
+    test('falls back to defaultAppVersion when PackageInfo is empty or fails', () async {
+      PackageInfo.setMockInitialValues(
+        appName: '',
+        packageName: '',
+        version: '',
+        buildNumber: '',
+        buildSignature: '',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      expect(LogService.instance.currentAppVersion, equals(LogService.defaultAppVersion));
+      expect(LogService.instance.currentSession?.appVersion, equals(LogService.defaultAppVersion));
+    });
+
+    test('version mismatch detects upgrade from previous session when runtime appVersion changes', () async {
+      PackageInfo.setMockInitialValues(
+        appName: 'Conduit',
+        packageName: 'com.dorokuma.conduit',
+        version: '1.5.0',
+        buildNumber: '70',
+        buildSignature: '',
+      );
+
+      final logDir = Directory(p.join(tempTestDir.path, 'logs'))..createSync(recursive: true);
+      final crashDir = Directory(p.join(logDir.path, 'crash'))..createSync(recursive: true);
+      final activeMarker = File(p.join(logDir.path, '.session_active'));
+
+      activeMarker.writeAsStringSync(
+        '{"sessionId":"prev_upgraded","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
+      );
+
+      await LogService.instance.init(overrideDir: tempTestDir);
+
+      final abnormalReport = File(p.join(crashDir.path, 'abnormal_exit_prev_upgraded.log'));
+      expect(abnormalReport.existsSync(), isTrue);
+      final reportText = abnormalReport.readAsStringSync();
+      expect(reportText, contains('Version change detected (likely app update / reinstall / overwrite), not a confirmed crash.'));
+      expect(reportText, contains('Previous App Version: 1.4.44+69'));
+      expect(reportText, contains('Current App Version: 1.5.0+70'));
     });
 
     test('graceful exit removes active session marker', () async {
@@ -306,6 +382,26 @@ void main() {
 
       // Session marker should still be written
       expect(content, contains('[Session] ===== CONDUIT SESSION STARTED'));
+    });
+
+    test('logs AppLifecycle transitions under Session tag in basic mode', () async {
+      await LogService.instance.init(overrideDir: tempTestDir);
+      LogService.instance.verboseLogging = false;
+
+      AppLogger.i('Session', 'AppLifecycle state changed to: paused');
+      AppLogger.i('Session', 'AppLifecycle state changed to: resumed');
+      AppLogger.i('Session', 'AppLifecycle state changed to: inactive');
+      AppLogger.i('Session', 'AppLifecycle state changed to: hidden');
+      AppLogger.i('Session', 'AppLifecycle state changed to: detached');
+
+      final activeLog = File(p.join(tempTestDir.path, 'logs', 'app.log'));
+      final content = activeLog.readAsStringSync();
+
+      expect(content, contains('[Session] AppLifecycle state changed to: paused'));
+      expect(content, contains('[Session] AppLifecycle state changed to: resumed'));
+      expect(content, contains('[Session] AppLifecycle state changed to: inactive'));
+      expect(content, contains('[Session] AppLifecycle state changed to: hidden'));
+      expect(content, contains('[Session] AppLifecycle state changed to: detached'));
     });
 
     test('records telemetry events when verboseLogging is true (Verbose Mode)', () async {
