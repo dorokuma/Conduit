@@ -56,7 +56,7 @@ class LogRecord {
 
 class SessionInfo {
   /// Fallback app version when deserializing legacy or unversioned session json.
-  static const String fallbackAppVersion = '1.4.44+69';
+  static const String fallbackAppVersion = '1.4.45+70';
 
   SessionInfo({
     required this.sessionId,

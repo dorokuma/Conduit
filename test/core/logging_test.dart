@@ -108,7 +108,7 @@ void main() {
 
       // Simulate a crashed previous session by leaving .session_active behind
       activeMarker.writeAsStringSync(
-        '{"sessionId":"prev_12345","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
+        '{"sessionId":"prev_12345","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -246,7 +246,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"prev_upgraded","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
+        '{"sessionId":"prev_upgraded","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -255,7 +255,7 @@ void main() {
       expect(abnormalReport.existsSync(), isTrue);
       final reportText = abnormalReport.readAsStringSync();
       expect(reportText, contains('Version change detected (likely app update / reinstall / overwrite), not a confirmed crash.'));
-      expect(reportText, contains('Previous App Version: 1.4.44+69'));
+      expect(reportText, contains('Previous App Version: 1.4.45+70'));
       expect(reportText, contains('Current App Version: 1.5.0+70'));
     });
 
@@ -355,7 +355,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"native_crashed_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"native_crashed_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -403,7 +403,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"overwritten_trace_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"overwritten_trace_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -436,7 +436,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"java_crash_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"java_crash_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -471,7 +471,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"anr_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"anr_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -504,7 +504,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"lmk_fg_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"lmk_fg_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -540,7 +540,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"lmk_cached_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"lmk_cached_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -576,7 +576,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"signal_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"signal_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -613,7 +613,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"stale_timestamp_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"stale_timestamp_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -650,7 +650,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"memory_limiter_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 15","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
+        '{"sessionId":"memory_limiter_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 15","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -686,7 +686,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"anomaly_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
+        '{"sessionId":"anomaly_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 16","platform":"android","deviceModel":"Pixel 9","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -722,7 +722,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"freezer_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"freezer_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -759,7 +759,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"init_fail_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"init_fail_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -794,7 +794,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"unknown_code_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"unknown_code_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -855,7 +855,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"no_tombstone_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
+        '{"sessionId":"no_tombstone_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 14","platform":"android","deviceModel":"Pixel 8","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);
@@ -924,7 +924,7 @@ void main() {
       final activeMarker = File(p.join(logDir.path, '.session_active'));
 
       activeMarker.writeAsStringSync(
-        '{"sessionId":"legacy_android_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.44+69","osVersion":"Android 10","platform":"android","deviceModel":"Pixel 3","abi":"arm64-v8a"}',
+        '{"sessionId":"legacy_android_session","startTime":"2026-09-01T10:00:00.000Z","appVersion":"1.4.45+70","osVersion":"Android 10","platform":"android","deviceModel":"Pixel 3","abi":"arm64-v8a"}',
       );
 
       await LogService.instance.init(overrideDir: tempTestDir);

@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: v1.4.44
+          ref: v1.4.45
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -71,11 +71,18 @@ jobs:
             exit 1
           fi
           echo "Found APK: $apk_file"
-          cp "$apk_file" conduit-1.4.44-arm64-release.apk
+          cp "$apk_file" conduit-1.4.45-arm64-release.apk
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create v1.4.45 --generate-notes -R dorokuma/Conduit || true
 
       - name: Upload APK to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v1.4.44 conduit-1.4.44-arm64-release.apk -R dorokuma/Conduit --clobber
+          gh release upload v1.4.45 conduit-1.4.45-arm64-release.apk -R dorokuma/Conduit --clobber
