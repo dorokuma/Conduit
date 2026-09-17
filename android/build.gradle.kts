@@ -2,7 +2,7 @@ import com.android.build.gradle.LibraryExtension
 
 allprojects {
     repositories {
-        google()
+        maven { url = uri("file:///root/android-maven-seed") }
         mavenCentral()
     }
 }
