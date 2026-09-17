@@ -156,10 +156,9 @@ void main() {
         moshLocale: 'en_US.UTF-8',
         moshPorts: '60000:61000',
         externalAuthOfferKey: false,
-        startTmuxOnConnect: true,
-        tmuxPrefixKey: TmuxPrefixKey.controlA,
-        tmuxSessionName: 'work',
-        tmuxStartDirectory: '~/projects',
+        startHerdrOnConnect: true,
+        herdrPrefixKey: HerdrPrefixKey.controlA,
+        herdrSessionName: 'work',
         snippets: const [
           TerminalSnippet(
             id: 'snippet:deploy',
@@ -192,10 +191,9 @@ void main() {
       expect(decoded.moshPorts, original.moshPorts);
       expect(decoded.externalAuthOfferKey, original.externalAuthOfferKey);
       expect(decoded.predictiveEchoEnabled, original.predictiveEchoEnabled);
-      expect(decoded.startTmuxOnConnect, original.startTmuxOnConnect);
-      expect(decoded.tmuxPrefixKey, original.tmuxPrefixKey);
-      expect(decoded.tmuxSessionName, original.tmuxSessionName);
-      expect(decoded.tmuxStartDirectory, original.tmuxStartDirectory);
+      expect(decoded.startHerdrOnConnect, original.startHerdrOnConnect);
+      expect(decoded.herdrPrefixKey, original.herdrPrefixKey);
+      expect(decoded.herdrSessionName, original.herdrSessionName);
       expect(decoded.snippets, original.snippets);
       expect(decoded.connectSnippetId, original.connectSnippetId);
       expect(decoded.lastConnectedAt, original.lastConnectedAt);
@@ -216,7 +214,7 @@ void main() {
       expect(decoded.moshPorts, isEmpty);
     });
 
-    test('older saved hosts default to no tmux start with Ctrl-B', () {
+    test('older saved hosts default to no herdr start with Ctrl-B', () {
       final decoded = SavedHost.fromJson(const {
         'id': 'id',
         'name': 'Legacy Host',
@@ -227,27 +225,65 @@ void main() {
         'password': 'secret',
       });
 
-      expect(decoded.startTmuxOnConnect, isFalse);
-      expect(decoded.tmuxPrefixKey, TmuxPrefixKey.controlB);
-      expect(decoded.tmuxSessionName, defaultTmuxSessionName);
-      expect(decoded.tmuxStartDirectory, isEmpty);
+      expect(decoded.startHerdrOnConnect, isFalse);
+      expect(decoded.herdrPrefixKey, HerdrPrefixKey.controlB);
+      expect(decoded.herdrSessionName, defaultHerdrSessionName);
       expect(decoded.externalAuthOfferKey, isTrue);
     });
 
-    test('legacy tmux start flag is still supported', () {
+    test('legacy herdr start flag is still supported', () {
       final decoded = SavedHost.fromJson(const {
         'id': 'id',
         'name': 'Legacy Host',
+        'host': 'example.com',
+        'port': 22,
+        'username': 'root',
+        'authMethod': 'password',
+        'password': 'secret',
+        'startHerdrOnConnect': true,
+      });
+
+      expect(decoded.startHerdrOnConnect, isTrue);
+      expect(decoded.herdrSessionName, defaultHerdrSessionName);
+    });
+
+    test('legacy tmux JSON fields fall back to herdr fields, preferring new fields when present', () {
+      final legacyOnly = SavedHost.fromJson(const {
+        'id': 'legacy-id',
+        'name': 'Legacy Tmux Host',
         'host': 'example.com',
         'port': 22,
         'username': 'root',
         'authMethod': 'password',
         'password': 'secret',
         'startTmuxOnConnect': true,
+        'tmuxPrefixKey': 'controlA',
+        'tmuxSessionName': 'legacy-session',
       });
 
-      expect(decoded.startTmuxOnConnect, isTrue);
-      expect(decoded.tmuxSessionName, defaultTmuxSessionName);
+      expect(legacyOnly.startHerdrOnConnect, isTrue);
+      expect(legacyOnly.herdrPrefixKey, HerdrPrefixKey.controlA);
+      expect(legacyOnly.herdrSessionName, 'legacy-session');
+
+      final bothPresent = SavedHost.fromJson(const {
+        'id': 'both-id',
+        'name': 'Both Host',
+        'host': 'example.com',
+        'port': 22,
+        'username': 'root',
+        'authMethod': 'password',
+        'password': 'secret',
+        'startHerdrOnConnect': false,
+        'startTmuxOnConnect': true,
+        'herdrPrefixKey': 'controlB',
+        'tmuxPrefixKey': 'controlA',
+        'herdrSessionName': 'new-session',
+        'tmuxSessionName': 'old-session',
+      });
+
+      expect(bothPresent.startHerdrOnConnect, isFalse);
+      expect(bothPresent.herdrPrefixKey, HerdrPrefixKey.controlB);
+      expect(bothPresent.herdrSessionName, 'new-session');
     });
 
     test('preserves hardware key auth method', () {

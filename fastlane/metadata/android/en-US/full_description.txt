@@ -9,7 +9,7 @@ Features:
 * SSH terminal sessions
 * Local Arch Linux shell on-device (Android, arm64) with pacman, running unprivileged through proot - no root, no server; downloads an Arch Linux ARM image on first use
 * Mosh roaming for unreliable mobile networks
-* Tmux auto attach/create per host, with start directories, prefix keys, action shortcuts, and scrollback mode
+* Herdr auto attach/create per host
 * SFTP file browsing and export
 * Import SSH private keys from a file, or generate an Ed25519 key on device
 * Optional passphrase encryption for generated keys, with public-key copy and export

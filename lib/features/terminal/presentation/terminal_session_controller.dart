@@ -69,8 +69,8 @@ class TerminalSessionController extends ChangeNotifier {
 
   static const _iosDuplicateEnterWindow = Duration(milliseconds: 80);
   static const _gracefulMoshCloseTimeout = Duration(milliseconds: 1500);
-  static const _tmuxDetachExitDelay = Duration(milliseconds: 150);
-  static const _connectSnippetAfterTmuxDelay = Duration(milliseconds: 250);
+  static const _herdrDetachExitDelay = Duration(milliseconds: 150);
+  static const _connectSnippetAfterHerdrDelay = Duration(milliseconds: 250);
 
   TerminalConnectionStatus get status => _status;
   String get title => host.name;
@@ -213,7 +213,7 @@ class TerminalSessionController extends ChangeNotifier {
 
       _status = TerminalConnectionStatus.connected;
       notifyListeners();
-      _startTmuxIfConfigured(session);
+      _startHerdrIfConfigured(session);
       _runConnectSnippetIfConfigured(session);
     } on AppFailure catch (failure) {
       if (_disposed || generation != _connectionGeneration) {
@@ -289,8 +289,8 @@ class TerminalSessionController extends ChangeNotifier {
     keyboard.clearModifiers();
   }
 
-  void _startTmuxIfConfigured(SshTerminalSession session) {
-    final command = _buildTmuxCommand();
+  void _startHerdrIfConfigured(SshTerminalSession session) {
+    final command = _buildHerdrCommand();
     if (command == null) {
       return;
     }
@@ -316,8 +316,8 @@ class TerminalSessionController extends ChangeNotifier {
     if (text.isEmpty) {
       return;
     }
-    final delay = host.startTmuxOnConnect
-        ? _connectSnippetAfterTmuxDelay
+    final delay = host.startHerdrOnConnect
+        ? _connectSnippetAfterHerdrDelay
         : Duration.zero;
     unawaited(_sendConnectSnippet(session, text, delay));
   }
@@ -346,9 +346,9 @@ class TerminalSessionController extends ChangeNotifier {
       return;
     }
     try {
-      if (host.startTmuxOnConnect) {
-        await session.send(_tmuxDetachBytes());
-        await Future<void>.delayed(_tmuxDetachExitDelay);
+      if (host.startHerdrOnConnect) {
+        await session.send(_herdrDetachBytes());
+        await Future<void>.delayed(_herdrDetachExitDelay);
         await session.send(utf8.encode('exit\r'));
       } else {
         await session.send(const [0x04]);
@@ -360,31 +360,27 @@ class TerminalSessionController extends ChangeNotifier {
     }
   }
 
-  List<int> _tmuxDetachBytes() {
-    final prefix = switch (host.tmuxPrefixKey) {
-      TmuxPrefixKey.controlA => 0x01,
-      TmuxPrefixKey.controlB => 0x02,
+  List<int> _herdrDetachBytes() {
+    final prefix = switch (host.herdrPrefixKey) {
+      HerdrPrefixKey.controlA => 0x01,
+      HerdrPrefixKey.controlB => 0x02,
     };
-    return [prefix, 0x64];
+    return [prefix, 0x71];
   }
 
   @visibleForTesting
-  String? buildTmuxCommandForTesting() => _buildTmuxCommand();
+  String? buildHerdrCommandForTesting() => _buildHerdrCommand();
 
-  String? _buildTmuxCommand() {
-    if (!host.startTmuxOnConnect) {
+  String? _buildHerdrCommand() {
+    if (!host.startHerdrOnConnect) {
       return null;
     }
-    final sessionName = host.tmuxSessionName.trim().isEmpty
-        ? defaultTmuxSessionName
-        : host.tmuxSessionName.trim();
+    final sessionName = host.herdrSessionName.trim().isEmpty
+        ? defaultHerdrSessionName
+        : host.herdrSessionName.trim();
     final command = StringBuffer(
-      'tmux new-session -A -s ${_shellQuote(sessionName)}',
+      'herdr session attach ${_shellQuote(sessionName)}',
     );
-    final startDirectory = host.tmuxStartDirectory.trim();
-    if (startDirectory.isNotEmpty) {
-      command.write(' -c ${_shellQuote(startDirectory)}');
-    }
     command.write(_enterSequence.value);
     return command.toString();
   }

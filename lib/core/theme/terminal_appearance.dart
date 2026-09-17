@@ -74,9 +74,9 @@ enum TerminalKeyboardAction {
   dash,
   paste,
   functionKeys,
-  tmuxPrefix,
-  tmuxScrollback,
-  tmuxMenu,
+  herdrPrefix,
+  herdrScrollback,
+  herdrMenu,
   snippets,
   compose,
 }
@@ -166,9 +166,9 @@ const defaultTerminalKeyboardActions = [
   TerminalKeyboardAction.pageUp,
   TerminalKeyboardAction.pageDown,
   TerminalKeyboardAction.functionKeys,
-  TerminalKeyboardAction.tmuxPrefix,
-  TerminalKeyboardAction.tmuxScrollback,
-  TerminalKeyboardAction.tmuxMenu,
+  TerminalKeyboardAction.herdrPrefix,
+  TerminalKeyboardAction.herdrScrollback,
+  TerminalKeyboardAction.herdrMenu,
   TerminalKeyboardAction.snippets,
   TerminalKeyboardAction.fullscreen,
 ];
@@ -223,16 +223,16 @@ const preTrackingTerminalKeyboardActionNames = <String>{
   'dash',
   'paste',
   'functionKeys',
-  'tmuxPrefix',
-  'tmuxScrollback',
-  'tmuxMenu',
+  'herdrPrefix',
+  'herdrScrollback',
+  'herdrMenu',
   'compose',
 };
 
-const tmuxTerminalKeyboardActions = [
-  TerminalKeyboardAction.tmuxPrefix,
-  TerminalKeyboardAction.tmuxScrollback,
-  TerminalKeyboardAction.tmuxMenu,
+const herdrTerminalKeyboardActions = [
+  TerminalKeyboardAction.herdrPrefix,
+  TerminalKeyboardAction.herdrScrollback,
+  TerminalKeyboardAction.herdrMenu,
 ];
 
 const defaultTerminalKeyboardItems = [
@@ -258,17 +258,17 @@ const defaultTerminalKeyboardItems = [
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.pageUp),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.pageDown),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.functionKeys),
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.tmuxPrefix),
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.tmuxScrollback),
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.tmuxMenu),
+  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrPrefix),
+  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrScrollback),
+  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrMenu),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.snippets),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.fullscreen),
 ];
 
-const tmuxTerminalKeyboardItems = [
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.tmuxPrefix),
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.tmuxScrollback),
-  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.tmuxMenu),
+const herdrTerminalKeyboardItems = [
+  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrPrefix),
+  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrScrollback),
+  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrMenu),
 ];
 
 const terminalKeyboardRowHeightDefault = 50.0;
@@ -378,9 +378,9 @@ extension TerminalKeyboardActionDetails on TerminalKeyboardAction {
     TerminalKeyboardAction.dash => '-',
     TerminalKeyboardAction.paste => 'Paste',
     TerminalKeyboardAction.functionKeys => 'Fn',
-    TerminalKeyboardAction.tmuxPrefix => 'Tmux',
-    TerminalKeyboardAction.tmuxScrollback => 'Scroll',
-    TerminalKeyboardAction.tmuxMenu => 'Tmux+',
+    TerminalKeyboardAction.herdrPrefix => 'Herdr',
+    TerminalKeyboardAction.herdrScrollback => 'Scroll',
+    TerminalKeyboardAction.herdrMenu => 'Herdr+',
     TerminalKeyboardAction.snippets => 'Snip',
     TerminalKeyboardAction.compose => 'Compose',
   };

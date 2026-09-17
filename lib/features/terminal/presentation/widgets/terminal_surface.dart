@@ -14,8 +14,8 @@ class TerminalSurface extends StatefulWidget {
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
     required this.focusNode,
-    required this.tmuxScrollMode,
-    required this.onExitTmuxScrollMode,
+    required this.herdrScrollMode,
+    required this.onExitHerdrScrollMode,
     super.key,
   });
 
@@ -28,8 +28,8 @@ class TerminalSurface extends StatefulWidget {
   final bool predictiveEchoEnabled;
   final bool terminalMouseInput;
   final FocusNode? focusNode;
-  final bool tmuxScrollMode;
-  final VoidCallback onExitTmuxScrollMode;
+  final bool herdrScrollMode;
+  final VoidCallback onExitHerdrScrollMode;
 
   @override
   State<TerminalSurface> createState() => _TerminalSurfaceState();
@@ -39,7 +39,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   final _pinchPointers = <int, Offset>{};
   double? _pinchStartDistance;
   double? _pinchStartFontSize;
-  double _tmuxScrollDelta = 0;
+  double _herdrScrollDelta = 0;
   late final TerminalController _terminalController;
 
   static PointerInputs _pointerInputsFor(bool terminalMouseInput) {
@@ -87,7 +87,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
-    if (widget.tmuxScrollMode) {
+    if (widget.herdrScrollMode) {
       return;
     }
     _pinchPointers[event.pointer] = event.localPosition;
@@ -98,7 +98,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
-    if (widget.tmuxScrollMode) {
+    if (widget.herdrScrollMode) {
       return;
     }
     if (!_pinchPointers.containsKey(event.pointer)) {
@@ -117,7 +117,7 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
   }
 
   void _handlePointerEnd(PointerEvent event) {
-    if (widget.tmuxScrollMode) {
+    if (widget.herdrScrollMode) {
       return;
     }
     _pinchPointers.remove(event.pointer);
@@ -127,22 +127,22 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
     }
   }
 
-  void _handleTmuxScrollDrag(DragUpdateDetails details) {
-    _tmuxScrollDelta += details.primaryDelta ?? 0;
+  void _handleHerdrScrollDrag(DragUpdateDetails details) {
+    _herdrScrollDelta += details.primaryDelta ?? 0;
     const step = 12.0;
-    while (_tmuxScrollDelta.abs() >= step) {
-      if (_tmuxScrollDelta > 0) {
+    while (_herdrScrollDelta.abs() >= step) {
+      if (_herdrScrollDelta > 0) {
         widget.session.sendKey(TerminalKey.arrowUp);
-        _tmuxScrollDelta -= step;
+        _herdrScrollDelta -= step;
       } else {
         widget.session.sendKey(TerminalKey.arrowDown);
-        _tmuxScrollDelta += step;
+        _herdrScrollDelta += step;
       }
     }
   }
 
-  void _handleTmuxScrollEnd(DragEndDetails details) {
-    _tmuxScrollDelta = 0;
+  void _handleHerdrScrollEnd(DragEndDetails details) {
+    _herdrScrollDelta = 0;
   }
 
   double get _pinchDistance {
@@ -186,16 +186,18 @@ class _TerminalSurfaceState extends State<TerminalSurface> {
                       ? TerminalCursorType.block
                       : TerminalCursorType.verticalBar,
                   alwaysShowCursor: true,
-                  simulateScroll: !widget.tmuxScrollMode,
+                  simulateScroll: widget.session.host.startHerdrOnConnect
+                      ? false
+                      : !widget.herdrScrollMode,
                 );
               },
             ),
-            if (widget.tmuxScrollMode)
+            if (widget.herdrScrollMode)
               Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onVerticalDragUpdate: _handleTmuxScrollDrag,
-                  onVerticalDragEnd: _handleTmuxScrollEnd,
+                  onVerticalDragUpdate: _handleHerdrScrollDrag,
+                  onVerticalDragEnd: _handleHerdrScrollEnd,
                   child: const SizedBox.expand(),
                 ),
               ),
