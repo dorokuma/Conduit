@@ -23,6 +23,13 @@ Conduit 旨在让你直接从手机连接远程主机，无需登录任何账号
 
 Mosh 功能基于 [dart_mosh](https://github.com/gwitko/dart_mosh) 运行（这是用 Dart 从头实现的 Mosh 协议栈），终端模拟器采用 fork 自 xterm.dart 的 [conduit_vt](https://github.com/gwitko/conduit_vt)。
 
+## 开发与协作规范
+
+详细的开发与贡献规范维护于以下文档：
+- [AGENTS.md](AGENTS.md)：Agent 协作铁律、真实构建/测试命令及仓库约束。
+- [.agents/notes/README.md](.agents/notes/README.md)：架构决策记录、设计考量与记录触发/豁免规则。
+- [.agents/notes/fork-delta.md](.agents/notes/fork-delta.md)：与上游的故意分歧说明及维护记录。
+
 ## 功能列表
 
 - SSH 终端会话：支持保存主机配置，提供标签过滤与搜索，可按最近连接、名称或添加时间排序，支持多标签页并行工作。
