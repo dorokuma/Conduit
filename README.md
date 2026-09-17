@@ -117,6 +117,17 @@ Conduit. Mosh runs on
 Conduit is improved by community contributions. See [CONTRIBUTORS.md](CONTRIBUTORS.md)
 for acknowledgements.
 
+## Commit messages
+
+Commit messages must follow Conventional Commits (`TYPE: subject` or `TYPE(scope): subject`).
+
+- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+- **Scope**: Optional (`[a-z0-9._-]+`).
+- **Subject**: Non-empty, ≤ 72 characters (Chinese and English permitted).
+- **Exemptions**: Merge, revert, `fixup!`, and `squash!` commits.
+
+Enforced locally by the `commit-msg` hook (includes secret scanning and noise word checks).
+
 ## Screenshots
 
 <p align="center">

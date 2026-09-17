@@ -59,6 +59,17 @@ Conduit 的源代码采用 [Apache-2.0](LICENSE) 协议开源，但不会改变�
 
 Conduit 得益于社区的共同参与而不断完善。完整的贡献者致谢名单请参阅 [贡献者名单](CONTRIBUTORS.md)。
 
+## 提交规范
+
+Git 提交信息必须遵循 Conventional Commits 规范（`type: subject` 或 `type(scope): subject`）。
+
+- **Types 类型**：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`。
+- **Scope 作用域**：可选（`[a-z0-9._-]+`）。
+- **Subject 主题**：非空，不超过 72 个字符（支持中英文）。
+- **豁免项**：Merge、revert、`fixup!` 以及 `squash!` 提交。
+
+由本地 `commit-msg` hook 强制执行校验（包含密钥扫描与过程噪声词拦截）。
+
 ## 截图
 
 <p align="center">
