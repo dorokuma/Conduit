@@ -44,6 +44,13 @@ Mosh runs on [dart_mosh](https://github.com/gwitko/dart_mosh), a clean-room
 Dart implementation of the protocol, and the terminal is
 [conduit_vt](https://github.com/gwitko/conduit_vt), a fork of xterm.dart.
 
+## Development conventions
+
+Detailed development and contribution guidelines are maintained across:
+- [AGENTS.md](AGENTS.md): Operating instructions, build/test commands, and core invariants for AI agents and developers.
+- [.agents/notes/README.md](.agents/notes/README.md): Guidelines and triggers for recording architectural decisions and troubleshooting notes.
+- [.agents/notes/fork-delta.md](.agents/notes/fork-delta.md): Inventory of intentional divergences and custom configurations relative to upstream Conduit.
+
 ## Features
 
 - SSH terminal sessions with saved machine profiles, tag and search filters,
