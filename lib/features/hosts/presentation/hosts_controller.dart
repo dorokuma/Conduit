@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/core/app_failure.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
 import 'package:conduit/features/hosts/domain/saved_hosts_repository.dart';
@@ -14,6 +16,7 @@ class HostsController extends ChangeNotifier {
   List<String> _manualOrder = const [];
   bool _isLoading = true;
   String? _errorMessage;
+  Future<void> _writeQueue = Future<void>.value();
 
   List<SavedHost> get hosts => _hosts;
   List<SavedHost> get sortedHosts =>
@@ -24,78 +27,108 @@ class HostsController extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  Future<void> load() async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final hosts = await _repository.loadHosts();
-      _sortMode = await _repository.loadSortMode();
-      _manualOrder = await _repository.loadManualOrder();
-      _setHosts(hosts);
-    } on AppFailure catch (failure) {
-      _errorMessage = failure.toString();
-    } catch (error) {
-      _errorMessage = error.toString();
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> setSortMode(HostListSortMode mode) async {
-    if (mode == _sortMode) return;
-
-    final seedManualOrder =
-        mode == HostListSortMode.manual && _manualOrder.isEmpty;
-    if (seedManualOrder) {
-      _manualOrder = sortedHosts.map((host) => host.id).toList();
-    }
-
-    _sortMode = mode;
-    _sortedHostsCache = null;
-    notifyListeners();
-
-    try {
-      await _repository.saveSortMode(mode);
-      if (seedManualOrder) {
-        await _repository.saveManualOrder(_manualOrder);
+  /// Serializes state-mutating operations on [_hosts], [_sortMode], and
+  /// [_manualOrder].
+  ///
+  /// Actions running inside [_serializeWrite] must not re-enter public
+  /// serialized methods (`load`, `setSortMode`, `reorderManual`, `upsert`,
+  /// `mergeImported`, `remove`, `markConnected`), or the queue will deadlock.
+  Future<T> _serializeWrite<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    Future<void> run() async {
+      try {
+        completer.complete(await action());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
       }
-    } on AppFailure catch (failure) {
-      _errorMessage = failure.toString();
-      notifyListeners();
-    } catch (error) {
-      _errorMessage = error.toString();
-      notifyListeners();
     }
+
+    _writeQueue = _writeQueue.then((_) => run(), onError: (_) => run());
+    return completer.future;
   }
 
-  Future<void> reorderManual(int oldIndex, int newIndex) async {
-    final ordered = [...sortedHosts];
-    if (oldIndex < 0 || oldIndex >= ordered.length) return;
-    newIndex = newIndex.clamp(0, ordered.length - 1);
-    if (oldIndex == newIndex) return;
-
-    final moved = ordered.removeAt(oldIndex);
-    ordered.insert(newIndex, moved);
-    _manualOrder = ordered.map((host) => host.id).toList();
-    _sortMode = HostListSortMode.manual;
-    _sortedHostsCache = null;
-    notifyListeners();
-
-    try {
-      await _repository.saveManualOrder(_manualOrder);
-    } on AppFailure catch (failure) {
-      _errorMessage = failure.toString();
+  Future<void> load() {
+    return _serializeWrite(() async {
+      _isLoading = true;
+      _errorMessage = null;
       notifyListeners();
-    } catch (error) {
-      _errorMessage = error.toString();
-      notifyListeners();
-    }
+
+      try {
+        final hosts = await _repository.loadHosts();
+        _sortMode = await _repository.loadSortMode();
+        _manualOrder = await _repository.loadManualOrder();
+        _setHosts(hosts);
+      } on AppFailure catch (failure) {
+        _errorMessage = failure.toString();
+      } catch (error) {
+        _errorMessage = error.toString();
+      } finally {
+        _isLoading = false;
+        notifyListeners();
+      }
+    });
   }
 
-  Future<void> upsert(SavedHost host) async {
+  Future<void> setSortMode(HostListSortMode mode) {
+    return _serializeWrite(() async {
+      if (mode == _sortMode) return;
+
+      final seedManualOrder =
+          mode == HostListSortMode.manual && _manualOrder.isEmpty;
+      if (seedManualOrder) {
+        _manualOrder = sortedHosts.map((host) => host.id).toList();
+      }
+
+      _sortMode = mode;
+      _sortedHostsCache = null;
+      notifyListeners();
+
+      try {
+        await _repository.saveSortMode(mode);
+        if (seedManualOrder) {
+          await _repository.saveManualOrder(_manualOrder);
+        }
+      } on AppFailure catch (failure) {
+        _errorMessage = failure.toString();
+        notifyListeners();
+      } catch (error) {
+        _errorMessage = error.toString();
+        notifyListeners();
+      }
+    });
+  }
+
+  Future<void> reorderManual(int oldIndex, int newIndex) {
+    return _serializeWrite(() async {
+      final ordered = [...sortedHosts];
+      if (oldIndex < 0 || oldIndex >= ordered.length) return;
+      newIndex = newIndex.clamp(0, ordered.length - 1);
+      if (oldIndex == newIndex) return;
+
+      final moved = ordered.removeAt(oldIndex);
+      ordered.insert(newIndex, moved);
+      _manualOrder = ordered.map((host) => host.id).toList();
+      _sortMode = HostListSortMode.manual;
+      _sortedHostsCache = null;
+      notifyListeners();
+
+      try {
+        await _repository.saveManualOrder(_manualOrder);
+      } on AppFailure catch (failure) {
+        _errorMessage = failure.toString();
+        notifyListeners();
+      } catch (error) {
+        _errorMessage = error.toString();
+        notifyListeners();
+      }
+    });
+  }
+
+  Future<void> upsert(SavedHost host) {
+    return _serializeWrite(() => _upsertNow(host));
+  }
+
+  Future<void> _upsertNow(SavedHost host) async {
     final index = _hosts.indexWhere((currentHost) => currentHost.id == host.id);
     final updatedHosts = [..._hosts];
 
@@ -112,55 +145,61 @@ class HostsController extends ChangeNotifier {
     required List<SavedHost> hosts,
     required HostListSortMode sortMode,
     required List<String> manualOrder,
-  }) async {
-    final mergedById = {for (final host in _hosts) host.id: host};
-    for (final host in hosts) {
-      if (host.id.isNotEmpty) {
-        mergedById[host.id] = host;
+  }) {
+    return _serializeWrite(() async {
+      final mergedById = {for (final host in _hosts) host.id: host};
+      for (final host in hosts) {
+        if (host.id.isNotEmpty) {
+          mergedById[host.id] = host;
+        }
       }
-    }
 
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final mergedHosts = mergedById.values.toList(growable: false);
-      final importedIds = hosts.map((host) => host.id).toSet();
-      final currentManualOrder = _manualOrder.where(mergedById.containsKey);
-      final mergedManualOrder = <String>[
-        ...manualOrder.where(mergedById.containsKey),
-        ...currentManualOrder.where((id) => !importedIds.contains(id)),
-        ...mergedById.keys.where(
-          (id) => !manualOrder.contains(id) && !_manualOrder.contains(id),
-        ),
-      ];
-      await _repository.saveHosts(mergedHosts);
-      await _repository.saveSortMode(sortMode);
-      await _repository.saveManualOrder(mergedManualOrder);
-      _sortMode = sortMode;
-      _manualOrder = mergedManualOrder;
-      _setHosts(mergedHosts);
-    } on AppFailure catch (failure) {
-      _errorMessage = failure.toString();
-    } catch (error) {
-      _errorMessage = error.toString();
-    } finally {
+      _errorMessage = null;
       notifyListeners();
-    }
+
+      try {
+        final mergedHosts = mergedById.values.toList(growable: false);
+        final importedIds = hosts.map((host) => host.id).toSet();
+        final currentManualOrder = _manualOrder.where(mergedById.containsKey);
+        final mergedManualOrder = <String>[
+          ...manualOrder.where(mergedById.containsKey),
+          ...currentManualOrder.where((id) => !importedIds.contains(id)),
+          ...mergedById.keys.where(
+            (id) => !manualOrder.contains(id) && !_manualOrder.contains(id),
+          ),
+        ];
+        await _repository.saveHosts(mergedHosts);
+        await _repository.saveSortMode(sortMode);
+        await _repository.saveManualOrder(mergedManualOrder);
+        _sortMode = sortMode;
+        _manualOrder = mergedManualOrder;
+        _setHosts(mergedHosts);
+      } on AppFailure catch (failure) {
+        _errorMessage = failure.toString();
+      } catch (error) {
+        _errorMessage = error.toString();
+      } finally {
+        notifyListeners();
+      }
+    });
   }
 
-  Future<void> remove(SavedHost host) async {
-    await _save(
-      _hosts.where((currentHost) => currentHost.id != host.id).toList(),
-    );
+  Future<void> remove(SavedHost host) {
+    return _serializeWrite(() async {
+      await _save(
+        _hosts.where((currentHost) => currentHost.id != host.id).toList(),
+      );
+    });
   }
 
-  Future<void> markConnected(SavedHost host) async {
-    final current = _hosts.firstWhere(
-      (currentHost) => currentHost.id == host.id,
-      orElse: () => host,
-    );
-    await upsert(current.copyWith(lastConnectedAt: DateTime.now()));
+  Future<void> markConnected(SavedHost host) {
+    return _serializeWrite(() async {
+      final current = _hosts.firstWhere(
+        (currentHost) => currentHost.id == host.id,
+        orElse: () => host,
+      );
+      await _upsertNow(current.copyWith(lastConnectedAt: DateTime.now()));
+    });
   }
 
   Future<void> _save(List<SavedHost> hosts) async {

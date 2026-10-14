@@ -124,10 +124,15 @@ class _AddHardwareKeySheetState extends State<_AddHardwareKeySheet> {
       final stub = _stub;
       final passphrase = _passphraseController.text;
       _verifyTimer = Timer(_verifyDebounce, () async {
-        final result = await widget.keyService.verify(
-          stub,
-          passphrase: passphrase,
-        );
+        SshKeyInspection result;
+        try {
+          result = await widget.keyService.verify(
+            stub,
+            passphrase: passphrase,
+          );
+        } catch (_) {
+          result = const SshKeyInspection.invalid();
+        }
         if (!mounted || token != _verifyToken) return;
         _applyInspection(result);
       });

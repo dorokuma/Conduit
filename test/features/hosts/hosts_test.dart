@@ -843,6 +843,52 @@ void main() {
       expect(find.text('Hardware keys (1)'), findsOneWidget);
       expect(find.text('Hardware key 1'), findsOneWidget);
     });
+
+    testWidgets('catches async verify errors in hardware key inspection and sheet', (
+      tester,
+    ) async {
+      final service = _ControllableKeyService();
+      final encryptedPem = const Dartssh2SshKeyService()
+          .generateEd25519(passphrase: 'secret')
+          .privateKeyPem;
+      final host = SavedHost(
+        id: 'id',
+        name: 'Host',
+        host: 'example.com',
+        port: 22,
+        username: 'root',
+        authMethod: SshAuthMethod.hardwareKey,
+        hardwareKeys: [
+          HardwareKeyEntry(
+            id: 'k1',
+            privateKey: encryptedPem,
+            passphrase: 'secret',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: HostFormPage(host: host, keyService: service)),
+      );
+      service.failLast(StateError('corrupt key'));
+      await tester.pump();
+
+      await scrollToAndTap(tester, find.text('Add hardware key'));
+      await tester.enterText(
+        find.widgetWithText(TextField, 'OpenSSH hardware key stub'),
+        encryptedPem,
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Stub passphrase'),
+        'secret',
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      service.failLast(StateError('corrupt stub'));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('HostsController', () {
@@ -1007,7 +1053,49 @@ void main() {
         'Gamma',
       ]);
     });
+
+    test('serializes concurrent host writes without losing updates', () async {
+      final repository = _FlakyHostsRepository();
+      final controller = HostsController(repository);
+      await controller.load();
+
+      await Future.wait([
+        controller.upsert(buildHost('a')),
+        controller.upsert(buildHost('b')),
+      ]);
+
+      expect(controller.hosts.map((host) => host.id), ['a', 'b']);
+      expect(repository.persisted.map((host) => host.id), ['a', 'b']);
+
+      repository.failNext = true;
+      await expectLater(
+        controller.upsert(buildHost('fail')),
+        throwsA(isA<StateError>()),
+      );
+      await controller.upsert(buildHost('c'));
+
+      expect(controller.hosts.map((host) => host.id), ['a', 'b', 'c']);
+      expect(repository.persisted.map((host) => host.id), ['a', 'b', 'c']);
+    });
   });
+}
+
+class _FlakyHostsRepository extends FakeHostsRepository {
+  bool failNext = false;
+
+  @override
+  Future<void> saveHosts(List<SavedHost> hosts) async {
+    if (failNext) {
+      failNext = false;
+      throw _UnstringableError();
+    }
+    await super.saveHosts(hosts);
+  }
+}
+
+class _UnstringableError {
+  @override
+  String toString() => throw StateError('write failed');
 }
 
 class _SyncKeyService implements SshKeyService {
@@ -1038,6 +1126,8 @@ class _ControllableKeyService implements SshKeyService {
 
   void completeLast(SshKeyInspection result) =>
       _completers.last.complete(result);
+
+  void failLast(Object error) => _completers.last.completeError(error);
 
   @override
   SshKeyInspection inspect(String pem, {String passphrase = ''}) =>

@@ -236,6 +236,8 @@ class AppBackupService {
         if (decoded is Map<Object?, Object?>) {
           return Map<String, Object?>.from(decoded);
         }
+      } on AppBackupException {
+        rethrow;
       } catch (_) {
         throw const AppBackupException(
           'The password is wrong or the backup changed.',
@@ -356,6 +358,7 @@ class AppBackupCrypto {
   const AppBackupCrypto();
 
   static const iterations = 210000;
+  static const maxIterations = 1000000;
   static const _keyLength = 32;
   static const _saltLength = 32;
   static const _nonceLength = 24;
@@ -401,6 +404,8 @@ class AppBackupCrypto {
     final iterationCount = kdf['iterations'];
     final keyLength = kdf['keyLength'];
     if (iterationCount is! int ||
+        iterationCount <= 0 ||
+        iterationCount > maxIterations ||
         keyLength is! int ||
         keyLength != _keyLength) {
       throw const AppBackupException('This encrypted backup is not supported.');
@@ -439,8 +444,8 @@ class AppBackupCrypto {
     int iterations,
     int keyLength,
   ) {
-    if (iterations <= 0 || keyLength <= 0) {
-      throw ArgumentError.value(iterations, 'iterations');
+    if (iterations <= 0 || iterations > maxIterations || keyLength <= 0) {
+      throw const AppBackupException('This encrypted backup is not supported.');
     }
     final hmac = Hmac(sha256, password);
     final blockCount = (keyLength / hmac.convert(<int>[]).bytes.length).ceil();

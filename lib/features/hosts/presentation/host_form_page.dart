@@ -99,7 +99,7 @@ class _HostFormPageState extends State<HostFormPage> {
             : host.hardwareKeys,
       );
       for (final entry in _hardwareKeys) {
-        _inspectHardwareKey(entry);
+        unawaited(_inspectHardwareKey(entry));
       }
       _timeoutController.text = host.connectionTimeoutSeconds.toString();
       _authMethod = host.authMethod;
@@ -129,21 +129,32 @@ class _HostFormPageState extends State<HostFormPage> {
     return widget.keyService.inspect(_privateKeyController.text);
   }
 
-  void _inspectHardwareKey(HardwareKeyEntry entry) {
+  Future<void> _inspectHardwareKey(HardwareKeyEntry entry) async {
     if (entry.passphrase.isEmpty) {
       _hardwareKeyInspections[entry.id] = widget.keyService.inspect(
         entry.privateKey,
       );
       return;
     }
-    unawaited(
-      widget.keyService
-          .verify(entry.privateKey, passphrase: entry.passphrase)
-          .then((inspection) {
-            if (!mounted) return;
-            setState(() => _hardwareKeyInspections[entry.id] = inspection);
-          }),
-    );
+    SshKeyInspection inspection;
+    try {
+      inspection = await widget.keyService.verify(
+        entry.privateKey,
+        passphrase: entry.passphrase,
+      );
+    } catch (_) {
+      inspection = const SshKeyInspection.invalid();
+    }
+    if (!mounted ||
+        !_hardwareKeys.any(
+          (current) =>
+              current.id == entry.id &&
+              current.privateKey == entry.privateKey &&
+              current.passphrase == entry.passphrase,
+        )) {
+      return;
+    }
+    setState(() => _hardwareKeyInspections[entry.id] = inspection);
   }
 
   void _recomputeKeyInspection() {
@@ -156,10 +167,15 @@ class _HostFormPageState extends State<HostFormPage> {
       final key = _privateKeyController.text;
       final passphrase = _passphraseController.text;
       _verifyTimer = Timer(_verifyDebounce, () async {
-        final result = await widget.keyService.verify(
-          key,
-          passphrase: passphrase,
-        );
+        SshKeyInspection result;
+        try {
+          result = await widget.keyService.verify(
+            key,
+            passphrase: passphrase,
+          );
+        } catch (_) {
+          result = const SshKeyInspection.invalid();
+        }
         if (!mounted || token != _verifyToken) return;
         _setInspection(result);
       });

@@ -1,11 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cbor/cbor.dart';
 import 'package:conduit/core/app_failure.dart';
 import 'package:conduit/core/theme/app_palette.dart';
 import 'package:conduit/core/theme/terminal_appearance.dart';
+import 'package:conduit/core/theme/theme_controller.dart';
+import 'package:conduit/core/theme/theme_preferences_repository.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
 import 'package:conduit/features/snippets/domain/terminal_snippet.dart';
+import 'package:conduit/features/terminal/data/fido_hardware_key_ctap_device.dart';
 import 'package:conduit/features/terminal/data/openssh_security_key_signer.dart';
 import 'package:conduit/features/terminal/data/secure_host_key_verifier.dart';
 import 'package:conduit/features/terminal/data/ssh_client_factory.dart';
@@ -13,10 +17,14 @@ import 'package:conduit/features/terminal/data/ssh_error_formatter.dart';
 import 'package:conduit/features/terminal/domain/host_key_prompt.dart';
 import 'package:conduit/features/terminal/domain/host_key_verifier.dart';
 import 'package:conduit/features/terminal/domain/security_key_interaction.dart';
+import 'package:conduit/features/terminal/domain/ssh_terminal_repository.dart';
+import 'package:conduit/features/terminal/domain/ssh_terminal_session.dart';
 import 'package:conduit/features/terminal/presentation/host_key_prompt_coordinator.dart';
 import 'package:conduit/features/terminal/presentation/terminal_keyboard_bar.dart';
 import 'package:conduit/features/terminal/presentation/terminal_keyboard_controller.dart';
+import 'package:conduit/features/terminal/presentation/terminal_page.dart';
 import 'package:conduit/features/terminal/presentation/terminal_session_controller.dart';
+import 'package:conduit/features/terminal/presentation/terminal_workspace_controller.dart';
 import 'package:conduit/features/terminal/presentation/widgets/terminal_surface.dart';
 import 'package:conduit_vt/conduit_vt.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -68,6 +76,7 @@ void main() {
       final connect = controller.connect();
       expect(controller.status, TerminalConnectionStatus.connecting);
 
+      await Future<void>.delayed(Duration.zero);
       await controller.disconnect();
       repository.complete(session);
       await connect;
@@ -920,6 +929,168 @@ void main() {
 
       expect(session.sent.map(String.fromCharCodes), ['\r']);
     });
+
+    test('cleans up failed or closed sessions and stops output after remote close', () async {
+      final failingSession = _ThrowingResizeSession();
+      final failController = TerminalSessionController(
+        host: buildHost('fail-cleanup'),
+        repository: ImmediateTerminalRepository(failingSession),
+      );
+      addTearDown(failController.dispose);
+
+      await failController.connect();
+      expect(failController.status, TerminalConnectionStatus.failed);
+      expect(failingSession.closeCount, 1);
+
+      final cancelCompleter = Completer<void>();
+      final closingSession = _SlowCancelSession(
+        completeAfterSends: 1,
+        cancelFuture: cancelCompleter.future,
+      );
+      final nextSession = _SlowCancelSession();
+      final repo = _ReconnectableTerminalRepository([
+        closingSession,
+        nextSession,
+      ]);
+      final closeController = TerminalSessionController(
+        host: buildHost('close-cleanup'),
+        repository: repo,
+      );
+      addTearDown(closeController.dispose);
+
+      await closeController.connect();
+      closeController.sendText('a');
+      await Future<void>.delayed(Duration.zero);
+      expect(closeController.status, TerminalConnectionStatus.disconnected);
+      expect(closingSession.closeCount, 1);
+
+      closeController.sendText('b');
+      expect(closingSession.sent.map(String.fromCharCodes), ['a']);
+
+      await closeController.connect();
+      cancelCompleter.complete();
+      await Future<void>.delayed(Duration.zero);
+      nextSession.emit('reconnected-ok');
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        closeController.terminal.buffer.lines[0].getText(),
+        contains('reconnected-ok'),
+      );
+    });
+
+    testWidgets('shows reconnect action in fullscreen when session disconnects', (
+      tester,
+    ) async {
+      final themeController = ThemeController(
+        InMemoryThemePreferences(
+          const ThemePreferences(
+            themeMode: ThemeMode.system,
+            palette: AppPalette.catppuccin,
+            terminalKeyboardRows: [
+              TerminalKeyboardRow(
+                items: [
+                  TerminalKeyboardItem.builtIn(
+                    TerminalKeyboardAction.fullscreen,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+      await themeController.load();
+      final workspace = TerminalWorkspaceController(
+        _ReconnectableTerminalRepository(),
+      );
+      addTearDown(workspace.dispose);
+      final session = workspace.open(buildHost('fullscreen-reconnect'));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TerminalPage(
+            workspace: workspace,
+            themeController: themeController,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(session.status, TerminalConnectionStatus.connected);
+
+      await tester.tap(find.byIcon(Icons.fullscreen_rounded));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byTooltip('Reconnect'), findsNothing);
+
+      session.sendText('x');
+      await tester.pump();
+      expect(session.status, TerminalConnectionStatus.disconnected);
+      expect(find.byTooltip('Reconnect'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Reconnect'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(session.status, TerminalConnectionStatus.connected);
+    });
+
+    testWidgets('stops key repeat timers when key surface updates or disposes', (
+      tester,
+    ) async {
+      final controller = _RecordingTerminalSessionController();
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+      addTearDown(controller.dispose);
+
+      Widget buildBar(TerminalKeyboardAction action) => MaterialApp(
+        home: Scaffold(
+          body: TerminalKeyboardBar(
+            controller: controller,
+            focusNode: focusNode,
+            palette: AppPalette.catppuccin,
+            brightness: Brightness.dark,
+            rows: [
+              TerminalKeyboardRow(
+                items: [TerminalKeyboardItem.builtIn(action)],
+              ),
+            ],
+            globalSnippets: const [],
+            fullscreen: false,
+            onToggleFullscreen: () {},
+            onEnterHerdrScrollMode: () {},
+            onExitHerdrScrollMode: () {},
+            herdrPrefixKey: HerdrPrefixKey.controlB,
+            herdrScrollMode: false,
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(buildBar(TerminalKeyboardAction.arrowDown));
+      final gesture = await tester.press(
+        find.byIcon(Icons.keyboard_arrow_down_rounded),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(controller.sentKeys, [TerminalKey.arrowDown]);
+
+      await tester.pumpWidget(buildBar(TerminalKeyboardAction.escape));
+      await tester.pump(const Duration(milliseconds: 120));
+      await gesture.up();
+      expect(controller.sentKeys, [TerminalKey.arrowDown]);
+
+      await tester.pumpWidget(buildBar(TerminalKeyboardAction.arrowDown));
+      final disposeGesture = await tester.press(
+        find.byIcon(Icons.keyboard_arrow_down_rounded),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(controller.sentKeys, [
+        TerminalKey.arrowDown,
+        TerminalKey.arrowDown,
+      ]);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 120));
+      await disposeGesture.up();
+      expect(controller.sentKeys, [
+        TerminalKey.arrowDown,
+        TerminalKey.arrowDown,
+      ]);
+    });
   });
 
   group('OpenSSH security key signer', () {
@@ -1534,6 +1705,39 @@ void main() {
         'The NFC prompt timed out before a security key was read.',
       );
     });
+
+    test('Android CTAP discovery surfaces USB error and times out without hanging', () async {
+      var nfcCancelled = 0;
+      await expectLater(
+        FidoHardwareKeyCtapDevice.openAndroidForTesting(
+          discoveryWindow: const Duration(milliseconds: 20),
+          usbPollInterval: const Duration(milliseconds: 5),
+          isUsbAvailable: () async => true,
+          openUsb: () async => throw PlatformException(code: 'usb_failed'),
+          pollNfc: () async => null,
+          cancelNfcPoll: () async => nfcCancelled++,
+        ).timeout(const Duration(milliseconds: 80)),
+        throwsA(isA<PlatformException>().having((e) => e.code, 'code', 'usb_failed')),
+      );
+      var usbPolls = 0;
+      await expectLater(
+        FidoHardwareKeyCtapDevice.openAndroidForTesting(
+          discoveryWindow: const Duration(milliseconds: 20),
+          usbPollInterval: const Duration(milliseconds: 5),
+          isUsbAvailable: () async {
+            usbPolls++;
+            return false;
+          },
+          pollNfc: () => Completer<CtapDevice?>().future,
+          cancelNfcPoll: () async => nfcCancelled++,
+        ).timeout(const Duration(milliseconds: 80)),
+        throwsA(anyOf(isA<TimeoutException>(), isA<StateError>())),
+      );
+      expect(nfcCancelled, 2);
+      final pollsAtTimeout = usbPolls;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+      expect(usbPolls, pollsAtTimeout);
+    });
   });
 
   group('SshClientFactory host key fingerprints', () {
@@ -2145,4 +2349,40 @@ Future<void> _openSnippetsMenu(WidgetTester tester) async {
   // ignore: avoid_dynamic_calls
   state.showButtonMenu();
   await tester.pumpAndSettle();
+}
+
+class _ThrowingResizeSession extends TrackableTerminalSession {
+  @override
+  void resize(int columns, int rows, int pixelWidth, int pixelHeight) {
+    throw StateError('resize failed');
+  }
+}
+
+class _SlowCancelSession extends TrackableTerminalSession {
+  _SlowCancelSession({super.completeAfterSends, Future<void>? cancelFuture})
+    : _stdout = StreamController<List<int>>(onCancel: () => cancelFuture);
+
+  final StreamController<List<int>> _stdout;
+
+  @override
+  Stream<List<int>> get stdout => _stdout.stream;
+
+  void emit(String text) => _stdout.add(utf8.encode(text));
+}
+
+class _ReconnectableTerminalRepository implements SshTerminalRepository {
+  _ReconnectableTerminalRepository([List<SshTerminalSession>? sessions])
+    : _sessions = sessions != null ? List.of(sessions) : null;
+
+  final List<SshTerminalSession>? _sessions;
+
+  @override
+  Future<SshTerminalSession> connect(
+    SavedHost host, {
+    required int columns,
+    required int rows,
+  }) async =>
+      _sessions != null && _sessions.isNotEmpty
+          ? _sessions.removeAt(0)
+          : TrackableTerminalSession(completeAfterSends: 1);
 }

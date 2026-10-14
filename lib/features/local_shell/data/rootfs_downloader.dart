@@ -23,11 +23,18 @@ abstract interface class RootfsDownloader {
   });
 }
 
+/// Downloads and verifies the rootfs archive over HTTP.
+///
+/// Create a new [HttpRootfsDownloader] for each download when using the
+/// default constructor: an internally created [http.Client] is closed when
+/// [download] completes and cannot be reused for a second call.
 class HttpRootfsDownloader implements RootfsDownloader {
   HttpRootfsDownloader([http.Client? client])
-    : _client = client ?? http.Client();
+    : _client = client ?? http.Client(),
+      _ownsClient = client == null;
 
   final http.Client _client;
+  final bool _ownsClient;
 
   @override
   Future<void> download({
@@ -35,39 +42,45 @@ class HttpRootfsDownloader implements RootfsDownloader {
     required String destination,
     void Function(double progress)? onProgress,
   }) async {
-    final file = File(destination);
-    await file.parent.create(recursive: true);
+    try {
+      final file = File(destination);
+      await file.parent.create(recursive: true);
 
-    final total = manifest.downloadSizeBytes;
-    var existing = await file.exists() ? await file.length() : 0;
-    if (total > 0 && existing > total) {
-      await file.delete();
-      existing = 0;
-    }
+      final total = manifest.downloadSizeBytes;
+      var existing = await file.exists() ? await file.length() : 0;
+      if (total > 0 && existing > total) {
+        await file.delete();
+        existing = 0;
+      }
 
-    final verifier = Sha256Verifier(manifest.sha256);
-    final alreadyComplete = total > 0 && existing == total;
-    if (alreadyComplete) {
-      await _hashFile(file, verifier);
-    } else {
-      await _fetch(
-        manifest: manifest,
-        file: file,
-        existing: existing,
-        total: total,
-        verifier: verifier,
-        onProgress: onProgress,
-      );
-    }
+      final verifier = Sha256Verifier(manifest.sha256);
+      final alreadyComplete = total > 0 && existing == total;
+      if (alreadyComplete) {
+        await _hashFile(file, verifier);
+      } else {
+        await _fetch(
+          manifest: manifest,
+          file: file,
+          existing: existing,
+          total: total,
+          verifier: verifier,
+          onProgress: onProgress,
+        );
+      }
 
-    if (!verifier.verify()) {
-      await file.delete().catchError((_) => file);
-      throw const DownloadException(
-        DownloadFailureKind.corrupt,
-        'Downloaded archive failed checksum verification.',
-      );
+      if (!verifier.verify()) {
+        await file.delete().catchError((_) => file);
+        throw const DownloadException(
+          DownloadFailureKind.corrupt,
+          'Downloaded archive failed checksum verification.',
+        );
+      }
+      onProgress?.call(1);
+    } finally {
+      if (_ownsClient) {
+        _client.close();
+      }
     }
-    onProgress?.call(1);
   }
 
   Future<void> _fetch({

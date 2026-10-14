@@ -171,43 +171,78 @@ class _TerminalPageState extends State<TerminalPage> {
                     Expanded(
                       child: Container(
                         color: palette.terminalBackgroundFor(brightness),
-                        child: IndexedStack(
-                          index: widget.workspace.sessions.indexOf(
-                            activeSession,
-                          ),
+                        child: Stack(
                           children: [
-                            for (final session in widget.workspace.sessions)
-                              TerminalSurface(
-                                key: ValueKey(session.host.id),
-                                session: session,
-                                palette: palette,
-                                brightness: brightness,
-                                fontFamily: widget
-                                    .themeController
-                                    .terminalFont
-                                    .fontFamily,
-                                fontSize:
-                                    widget.themeController.terminalFontSize,
-                                onFontSizeChanged: (fontSize) {
-                                  unawaited(
-                                    widget.themeController.setTerminalFontSize(
-                                      fontSize,
+                            IndexedStack(
+                              index: widget.workspace.sessions.indexOf(
+                                activeSession,
+                              ),
+                              children: [
+                                for (final session in widget.workspace.sessions)
+                                  TerminalSurface(
+                                    key: ValueKey(session.host.id),
+                                    session: session,
+                                    palette: palette,
+                                    brightness: brightness,
+                                    fontFamily: widget
+                                        .themeController
+                                        .terminalFont
+                                        .fontFamily,
+                                    fontSize:
+                                        widget.themeController.terminalFontSize,
+                                    onFontSizeChanged: (fontSize) {
+                                      unawaited(
+                                        widget.themeController
+                                            .setTerminalFontSize(fontSize),
+                                      );
+                                    },
+                                    predictiveEchoEnabled:
+                                        session.host.predictiveEchoEnabled,
+                                    terminalMouseInput: widget
+                                        .themeController
+                                        .terminalMouseInput,
+                                    focusNode: session == activeSession
+                                        ? _focusNode
+                                        : null,
+                                    herdrScrollMode:
+                                        session == activeSession &&
+                                        _herdrScrollMode,
+                                    onExitHerdrScrollMode: () {
+                                      setState(() => _herdrScrollMode = false);
+                                      _focusNode.requestFocus();
+                                    },
+                                  ),
+                              ],
+                            ),
+                            if (_fullscreen &&
+                                (activeSession.status ==
+                                        TerminalConnectionStatus.disconnected ||
+                                    activeSession.status ==
+                                        TerminalConnectionStatus.failed))
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: SafeArea(
+                                  bottom: false,
+                                  child: Material(
+                                    color: palette.panelFor(brightness),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      side: BorderSide(
+                                        color: palette.hairlineFor(brightness),
+                                      ),
                                     ),
-                                  );
-                                },
-                                predictiveEchoEnabled:
-                                    session.host.predictiveEchoEnabled,
-                                terminalMouseInput:
-                                    widget.themeController.terminalMouseInput,
-                                focusNode: session == activeSession
-                                    ? _focusNode
-                                    : null,
-                                herdrScrollMode:
-                                    session == activeSession && _herdrScrollMode,
-                                onExitHerdrScrollMode: () {
-                                  setState(() => _herdrScrollMode = false);
-                                  _focusNode.requestFocus();
-                                },
+                                    child: IconButton(
+                                      tooltip: 'Reconnect',
+                                      color: palette.foregroundFor(brightness),
+                                      icon: const Icon(Icons.refresh_rounded),
+                                      onPressed: () async {
+                                        await activeSession.connect();
+                                        _focusNode.requestFocus();
+                                      },
+                                    ),
+                                  ),
+                                ),
                               ),
                           ],
                         ),

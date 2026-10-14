@@ -131,6 +131,10 @@ class TerminalSessionController extends ChangeNotifier {
     }
 
     final generation = ++_connectionGeneration;
+    _resizeTimer?.cancel();
+    _resizeTimer = null;
+    final previousSession = _session;
+    _session = null;
     _outputFilter.reset();
     _predictiveEcho.reset();
     _status = TerminalConnectionStatus.connecting;
@@ -141,18 +145,25 @@ class TerminalSessionController extends ChangeNotifier {
     );
     notifyListeners();
 
+    await _cancelSessionSubscriptions();
+    await _closeSessionSafely(previousSession);
+    if (_disposed || generation != _connectionGeneration || _disconnecting) {
+      return;
+    }
+
     StreamSubscription<String>? securityKeySubscription;
+    SshTerminalSession? session;
     try {
       securityKeySubscription = SecurityKeyInteraction.instance.messages.listen(
         (message) => terminal.write('$message\r\n'),
       );
-      final session = await repository.connect(
+      session = await repository.connect(
         host,
         columns: terminal.viewWidth,
         rows: terminal.viewHeight,
       );
       if (_disposed || generation != _connectionGeneration || _disconnecting) {
-        unawaited(session.close());
+        unawaited(_closeSessionSafely(session));
         return;
       }
       _session = session;
@@ -184,7 +195,14 @@ class TerminalSessionController extends ChangeNotifier {
           .transform(const Utf8Decoder(allowMalformed: true))
           .listen(_writeTerminalOutput, onError: _handleStreamError);
       _doneSubscription = session.done.asStream().listen((_) {
-        if (_status == TerminalConnectionStatus.connected) {
+        if (!_disposed && _status == TerminalConnectionStatus.connected) {
+          _resizeTimer?.cancel();
+          _resizeTimer = null;
+          final closedSession = _session ?? session;
+          _session = null;
+          _predictiveEcho.reset();
+          unawaited(_cancelSessionSubscriptions());
+          unawaited(_closeSessionSafely(closedSession));
           _status = TerminalConnectionStatus.disconnected;
           terminal.write(
             host.isLocal
@@ -216,11 +234,13 @@ class TerminalSessionController extends ChangeNotifier {
       _startHerdrIfConfigured(session);
       _runConnectSnippetIfConfigured(session);
     } on AppFailure catch (failure) {
+      await _cleanupFailedConnect(session);
       if (_disposed || generation != _connectionGeneration) {
         return;
       }
       _fail(failure.toString());
     } catch (error) {
+      await _cleanupFailedConnect(session);
       if (_disposed || generation != _connectionGeneration) {
         return;
       }
@@ -241,23 +261,14 @@ class TerminalSessionController extends ChangeNotifier {
 
     _resizeTimer?.cancel();
     _resizeTimer = null;
-    await _stdoutSubscription?.cancel();
-    await _stderrSubscription?.cancel();
-    await _doneSubscription?.cancel();
-    await _connectivitySubscription?.cancel();
-    await _echoAckSubscription?.cancel();
-    _stdoutSubscription = null;
-    _stderrSubscription = null;
-    _doneSubscription = null;
-    _connectivitySubscription = null;
-    _echoAckSubscription = null;
+    await _cancelSessionSubscriptions();
     _predictiveEcho.reset();
 
     final session = _session;
     _session = null;
     try {
       await _closeRemoteMoshSession(session);
-      await session?.close();
+      await _closeSessionSafely(session);
     } finally {
       keyboard.clearModifiers();
       _status = TerminalConnectionStatus.disconnected;
@@ -411,7 +422,7 @@ class TerminalSessionController extends ChangeNotifier {
     }
 
     final session = _session;
-    if (session == null) {
+    if (session == null || _status != TerminalConnectionStatus.connected) {
       return;
     }
 
@@ -540,10 +551,56 @@ class TerminalSessionController extends ChangeNotifier {
     session.resize(_pendingColumns, _pendingRows, _pixelWidth, _pixelHeight);
   }
 
+  Future<void> _cancelSessionSubscriptions() async {
+    final stdoutSub = _stdoutSubscription;
+    final stderrSub = _stderrSubscription;
+    final doneSub = _doneSubscription;
+    final connectivitySub = _connectivitySubscription;
+    final echoAckSub = _echoAckSubscription;
+    _stdoutSubscription = null;
+    _stderrSubscription = null;
+    _doneSubscription = null;
+    _connectivitySubscription = null;
+    _echoAckSubscription = null;
+    await Future.wait([
+      if (stdoutSub != null) stdoutSub.cancel().catchError((_) {}),
+      if (stderrSub != null) stderrSub.cancel().catchError((_) {}),
+      if (doneSub != null) doneSub.cancel().catchError((_) {}),
+      if (connectivitySub != null) connectivitySub.cancel().catchError((_) {}),
+      if (echoAckSub != null) echoAckSub.cancel().catchError((_) {}),
+    ]);
+  }
+
+  Future<void> _closeSessionSafely(SshTerminalSession? session) async {
+    if (session == null) {
+      return;
+    }
+    try {
+      await session.close();
+    } catch (_) {}
+  }
+
+  Future<void> _cleanupFailedConnect(SshTerminalSession? session) async {
+    _resizeTimer?.cancel();
+    _resizeTimer = null;
+    if (identical(_session, session)) {
+      _session = null;
+    }
+    await _cancelSessionSubscriptions();
+    await _closeSessionSafely(session);
+  }
+
   void _handleStreamError(Object error, [StackTrace? stackTrace]) {
     if (_disposed || _status != TerminalConnectionStatus.connected) {
       return;
     }
+    _resizeTimer?.cancel();
+    _resizeTimer = null;
+    final session = _session;
+    _session = null;
+    _predictiveEcho.reset();
+    unawaited(_cancelSessionSubscriptions());
+    unawaited(_closeSessionSafely(session));
     terminal.write('\r\n$error\r\n');
     _status = TerminalConnectionStatus.failed;
     notifyListeners();
@@ -563,16 +620,10 @@ class TerminalSessionController extends ChangeNotifier {
     _disposed = true;
     _connectionGeneration += 1;
     _resizeTimer?.cancel();
-    unawaited(_stdoutSubscription?.cancel());
-    unawaited(_stderrSubscription?.cancel());
-    unawaited(_doneSubscription?.cancel());
-    unawaited(_connectivitySubscription?.cancel());
-    unawaited(_echoAckSubscription?.cancel());
+    unawaited(_cancelSessionSubscriptions());
     final session = _session;
     _session = null;
-    if (session != null) {
-      unawaited(session.close());
-    }
+    unawaited(_closeSessionSafely(session));
     keyboard.dispose();
     _terminalPaintNotifier.dispose();
     super.dispose();

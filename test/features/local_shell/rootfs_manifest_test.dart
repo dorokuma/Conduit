@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:conduit/features/local_shell/data/rootfs_downloader.dart';
 import 'package:conduit/features/local_shell/domain/rootfs_manifest.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   const abcSha =
@@ -70,5 +73,50 @@ void main() {
       final verifier = Sha256Verifier(abcSha)..addChunk(utf8.encode('xyz'));
       expect(verifier.verify(), isFalse);
     });
+
+    test('HttpRootfsDownloader closes internal client but keeps injected client open', () async {
+      final tempDir = await Directory.systemTemp.createTemp('conduit_dl_test_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final dest = File('${tempDir.path}/rootfs.tar.gz')
+        ..writeAsBytesSync(abcBytes);
+      final manifest = RootfsManifest(
+        version: '2026.06.01',
+        archiveUrl: Uri.parse('https://mirror.example/arch.tar.gz'),
+        sha256: abcSha,
+        downloadSizeBytes: abcBytes.length,
+      );
+      var closeCount = 0;
+
+      await HttpOverrides.runZoned(
+        () async {
+          await HttpRootfsDownloader().download(
+            manifest: manifest,
+            destination: dest.path,
+          );
+          expect(closeCount, 1);
+
+          final externalClient = http.Client();
+          await HttpRootfsDownloader(externalClient).download(
+            manifest: manifest,
+            destination: dest.path,
+          );
+          expect(closeCount, 1);
+          externalClient.close();
+          expect(closeCount, 2);
+        },
+        createHttpClient: (_) => _CloseTrackingHttpClient(() => closeCount++),
+      );
+    });
   });
+}
+
+class _CloseTrackingHttpClient implements HttpClient {
+  _CloseTrackingHttpClient(this._onClose);
+  final void Function() _onClose;
+
+  @override
+  void close({bool force = false}) => _onClose();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

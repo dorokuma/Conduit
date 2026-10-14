@@ -121,6 +121,30 @@ void main() {
         expect(target.hostsRepository.persistedManualOrder.first, 'existing');
       },
     );
+
+    test('rejects encrypted backups with excessive KDF iterations', () {
+      final document = <String, Object?>{
+        'format': 'conduit.backup',
+        'version': 1,
+        'encrypted': true,
+        'kdf': <String, Object?>{
+          'name': 'pbkdf2-hmac-sha256',
+          'salt': base64Encode(List<int>.filled(32, 1)),
+          'iterations': 1000001,
+          'keyLength': 32,
+        },
+        'cipher': <String, Object?>{
+          'name': 'secretbox-xsalsa20-poly1305',
+          'nonce': base64Encode(List<int>.filled(24, 2)),
+          'ciphertext': base64Encode(List<int>.filled(32, 3)),
+        },
+      };
+
+      expect(
+        () => const AppBackupCrypto().decrypt(document, 'StrongPass123!'),
+        throwsA(isA<AppBackupException>()),
+      );
+    });
   });
 }
 

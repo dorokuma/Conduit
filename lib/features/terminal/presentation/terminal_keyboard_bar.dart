@@ -679,6 +679,14 @@ class _KeySurfaceState extends State<_KeySurface> {
   Offset? _pointerStart;
 
   @override
+  void didUpdateWidget(covariant _KeySurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.repeat || widget.onPressed == null) {
+      _stopRepeat();
+    }
+  }
+
+  @override
   void dispose() {
     _stopRepeat();
     super.dispose();
@@ -693,8 +701,7 @@ class _KeySurfaceState extends State<_KeySurface> {
   }
 
   void _startPress(Offset position) {
-    final onPressed = widget.onPressed;
-    if (onPressed == null) {
+    if (widget.onPressed == null) {
       return;
     }
     _pointerStart = position;
@@ -707,14 +714,14 @@ class _KeySurfaceState extends State<_KeySurface> {
     _delayTimer?.cancel();
     _repeatTimer?.cancel();
     _delayTimer = Timer(_repeatInitialDelay, () {
-      if (!_holding || _dragCanceled) {
+      if (!mounted || !_holding || _dragCanceled) {
         return;
       }
       _repeatStarted = true;
-      onPressed();
+      _pressOnce();
       _repeatTimer = Timer.periodic(_repeatInterval, (_) {
-        if (_holding && !_dragCanceled) {
-          onPressed();
+        if (mounted && _holding && !_dragCanceled) {
+          _pressOnce();
         }
       });
     });
