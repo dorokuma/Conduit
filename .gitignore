@@ -56,3 +56,4 @@ ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
 **/GeneratedPluginRegistrant.*
 website/node_modules/
 website/.nuxt/
+.agents/notes/INDEX.md

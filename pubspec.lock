@@ -101,8 +101,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: da267baa8bc087c11282013b8aa8be36d00a07bb
-      resolved-ref: da267baa8bc087c11282013b8aa8be36d00a07bb
+      ref: "63d870d8f70131ea1edddc0693524a65d0016885"
+      resolved-ref: "63d870d8f70131ea1edddc0693524a65d0016885"
       url: "https://github.com/dorokuma/conduit_vt.git"
     source: git
     version: "0.1.1"
