@@ -18,7 +18,7 @@ supersedes: ""
 ## 决策
 
 ### 1. 自定义 `conduit_vt` 依赖注入
-- **实现方式**：在 `pubspec.yaml` 中将终端模拟核心库 `conduit_vt` 覆盖为 Git 依赖，指向 `https://github.com/dorokuma/conduit_vt.git`（当前指定 commit `777ac1fb720d2cf1ebb8c939bba79ed583662791`）。
+- **实现方式**：在 `pubspec.yaml` 中将终端模拟核心库 `conduit_vt` 覆盖为 Git 依赖，指向 `https://github.com/dorokuma/conduit_vt.git`（`feat/alt-buffer-scroll-simulate` 分支已将 `conduit_vt` git ref 对齐至 commit `63d870d8f70131ea1edddc0693524a65d0016885`）。
 - **目的**：承载自定义终端功能演进与特定滚动模拟交互。
 
 ### 2. APK 自动化构建与发布链
@@ -47,3 +47,10 @@ supersedes: ""
 - `pubspec.yaml`（`conduit_vt` git 引用）
 - `.github/workflows/release-apk.yml` 与 `.github/workflows/ci-test.yml`
 - Git 远程配置：`origin`（`dorokuma/Conduit`）与 `upstream`（`gwitko/Conduit`）
+- `README.md`（上游链接保留现状）
+
+## 审查观察项（非契约破坏，供后续参考）
+
+- **README 上游链接与本分支 fork 依赖源差异**：`README.md` 中的徽章与 `[conduit_vt](https://github.com/gwitko/conduit_vt)` 链接仍指向 `gwitko` 上游，而 `feat/alt-buffer-scroll-simulate` 分支在 `pubspec.yaml` 中实际使用 `https://github.com/dorokuma/conduit_vt.git`（commit `63d870d8f70131ea1edddc0693524a65d0016885`）作为 fork 依赖源。此为保留上游 README 原貌、避免无谓合并冲突的现状差异。
+- **双工作树笔记索引脚本对齐**：`/root/workspace/Conduit` 与 `/root/workspace/Conduit-feat` 的 `feat/alt-buffer-scroll-simulate` 分支均已补齐 `scripts/notes-index.sh`、`.agents/notes/README.md` 与 `.agents/notes/_template.md` 并保持索引生成一致。
+
