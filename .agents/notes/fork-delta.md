@@ -36,6 +36,11 @@ supersedes: ""
 - **主工作分支**：`feat/alt-buffer-scroll-simulate`。
 - **发版 Tag 规则（已确认）**：以 `vX.Y.Z` 命名，其中 `X.Y` 跟随所同步的上游版本系列，`Z` 由本地发版独立递增、不复用不回填，`versionCode` 单调递增（现 `1.4.45+70`，下一版 `1.4.45+71`），tag 只打在 `Conduit-feat` 发版分支（`feat/alt-buffer-scroll-simulate`）且不依赖上游 tag 是否存在。
 
+#### CI 现状差距（登记，未在本轮修改）
+- `.github/workflows/release-apk.yml:21/74/81/88` 硬编码 `v1.4.45` 且 `gh release upload` 使用 `--clobber`，推 `feat/alt-buffer-scroll-simulate` 分支即触发，不读 `pubspec` 版本——下一次 `1.4.45+71` 发版若不改工作流，新 APK 会覆盖 `v1.4.45` 旧 Release。
+- `.github/workflows/release.yml` 只在 `master` push / `workflow_dispatch` 打 `v${versionName}` tag，与「tag 只打在发版分支」的既定规则不一致。
+- **处置结论**：这两处 CI 差距为已知登记项，下次发版前须先改工作流（如改为读 `pubspec` 或参数化 tag），本轮仅登记不改码。
+
 ## 被放弃的方案（必填）
 
 - **直接使用上游 `conduit_vt` 依赖**：无法及时验证和合入终端交互定制补丁，放弃。
@@ -46,7 +51,7 @@ supersedes: ""
 ## 来源
 
 - `pubspec.yaml`（`conduit_vt` git 引用）
-- `.github/workflows/release-apk.yml` 与 `.github/workflows/ci-test.yml`
+- `.github/workflows/release-apk.yml`、`.github/workflows/release.yml` 与 `.github/workflows/ci-test.yml`
 - Git 远程配置：`origin`（`dorokuma/Conduit`）与 `upstream`（`gwitko/Conduit`）
 - `README.md`（上游链接保留现状）
 
