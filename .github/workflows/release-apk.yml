@@ -5,6 +5,11 @@ on:
     branches:
       - feat/alt-buffer-scroll-simulate
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag override (e.g. v1.4.45). Defaults to v<versionName> from pubspec.yaml'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -17,8 +22,60 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: v1.4.45
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag_name }}
+        run: |
+          pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
+          app_version="${pubspec_version%%+*}"
+          version_code="${pubspec_version##*+}"
+          if [[ -z "${app_version}" || -z "${version_code}" || "${app_version}" == "${version_code}" ]]; then
+            echo "::error::pubspec.yaml version must use Flutter's versionName+versionCode format (got: '${pubspec_version}')."
+            exit 1
+          fi
+
+          if [[ -n "${INPUT_TAG:-}" ]]; then
+            tag="${INPUT_TAG}"
+            if [[ "${tag}" =~ ^v[0-9] ]]; then
+              app_version="${tag#v}"
+            else
+              tag="v${tag}"
+            fi
+          else
+            tag="v${app_version}"
+          fi
+
+          echo "Resolved tag: ${tag}"
+          echo "Resolved app_version: ${app_version}"
+          echo "Resolved version_code: ${version_code}"
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${version_code}" >> "${GITHUB_OUTPUT}"
+          echo "apk_name=conduit-${app_version}-arm64-release.apk" >> "${GITHUB_OUTPUT}"
+
+      - name: Check existing release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          APK_NAME: ${{ steps.version.outputs.apk_name }}
+        run: |
+          target_repo="${GITHUB_REPOSITORY}"
+          if gh release view "${TAG}" -R "${target_repo}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists on ${target_repo}. Checking existing assets..."
+            existing_assets=$(gh release view "${TAG}" -R "${target_repo}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+            if echo "${existing_assets}" | grep -Fxq "${APK_NAME}"; then
+              echo "::error::Asset '${APK_NAME}' already exists in release '${TAG}'. Aborting to prevent overwriting."
+              exit 1
+            fi
+            echo "Release ${TAG} exists, but asset '${APK_NAME}' does not. Proceeding with build."
+          else
+            echo "Release ${TAG} does not exist yet. Proceeding with build."
+          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -64,6 +121,9 @@ jobs:
         run: flutter build apk --release --flavor full --target-platform android-arm64 --split-per-abi
 
       - name: Prepare APK artifact
+        shell: bash
+        env:
+          APK_NAME: ${{ steps.version.outputs.apk_name }}
         run: |
           apk_file=$(find build/app/outputs/flutter-apk -type f \( -name "*arm64*.apk" -o -name "*.apk" \) | head -n 1)
           if [[ -z "$apk_file" || ! -f "$apk_file" ]]; then
@@ -71,18 +131,27 @@ jobs:
             exit 1
           fi
           echo "Found APK: $apk_file"
-          cp "$apk_file" conduit-1.4.45-arm64-release.apk
+          cp "$apk_file" "${APK_NAME}"
 
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create v1.4.45 --generate-notes -R dorokuma/Conduit || true
+          gh release create "${TAG}" --target "${GITHUB_SHA}" --generate-notes -R "${GITHUB_REPOSITORY}" || true
 
       - name: Upload APK to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          APK_NAME: ${{ steps.version.outputs.apk_name }}
         run: |
-          gh release upload v1.4.45 conduit-1.4.45-arm64-release.apk -R dorokuma/Conduit --clobber
+          target_repo="${GITHUB_REPOSITORY}"
+          if gh release view "${TAG}" -R "${target_repo}" >/dev/null 2>&1; then
+            existing_assets=$(gh release view "${TAG}" -R "${target_repo}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+            if echo "${existing_assets}" | grep -Fxq "${APK_NAME}"; then
+              echo "::error::Asset '${APK_NAME}' already exists in release '${TAG}'. Aborting upload."
+              exit 1
+            fi
+          fi
+          gh release upload "${TAG}" "${APK_NAME}" -R "${target_repo}"
