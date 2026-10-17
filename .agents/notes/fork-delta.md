@@ -37,7 +37,7 @@ supersedes: ""
 
 ### 6. 发版同步与本地 Shell 二进制分发策略（已确认）
 - **发版分支与同步策略（已确认）**：采用单向流——上游 `gwitko/Conduit` → `Conduit`（集成/实验仓，`origin` 即上游，严禁 push）→ 选择性 cherry-pick 到 `Conduit-feat` 的 `feat/alt-buffer-scroll-simulate`（唯一发版仓）；禁止反向整支 merge；同步触发条件为上游每次 release 后一次 + 本仓每轮定制收敛后一次；`Conduit` 不打发版 tag。
-- **本地 shell（termux）二进制分发打包策略（已确认）**：pinned 到 `pubspec.yaml` 所引用的 `conduit_vt` commit（单一权威源，当前登记 pinned commit：`63d870d8f70131ea1edddc0693524a65d0016885`），每次 `Conduit-feat` release 前构建一次并把产物作为该 release 的 assets 发布，在本笔记登记 pinned commit。
+- **本地 shell（termux）二进制分发打包策略（已确认）**：termux 本地 shell 二进制的构建 pin 为 `termux-packages` commit `ac296452b8ebec390cad3bce9060577c96099b10`（来源 `tools/build-local-shell-binaries.sh:4` 的 `TERMUX_PACKAGES_COMMIT` 默认值，包校验和快照在 `third_party/source-offer/termux-package-checksums.md` 与 `third_party/source-offer/termux-recipes/`），每次 `Conduit-feat` release 前构建一次并把产物作为该 release 的 assets 发布，在本笔记登记该 `termux-packages` pinned commit；`pubspec.yaml` 所引用的 `conduit_vt` commit `63d870d8f70131ea1edddc0693524a65d0016885` 只是 Dart 终端库依赖 pin（见第 1 节），与 termux 构建无关联，两者须分别登记、不得混写。
 
 ## 被放弃的方案（必填）
 - **直接 rebase/merge 上游 master 覆盖定制**：放弃，会破坏 `herdr` 终端集成、主题预设及离线构建能力。
@@ -46,10 +46,11 @@ supersedes: ""
 ### 发版与同步被否决方案
 - **反向整支 merge**：放弃从 `Conduit-feat` 向 `Conduit`（或跨仓双向）整支合并，避免发版仓专属提交污染集成/实验仓并破坏单向同步流。
 - **每仓各自打 tag**：放弃在 `Conduit` 与 `Conduit-feat` 各自打发版 tag，防止版本权威源分裂与产物追溯混乱；仅在唯一发版仓 `Conduit-feat` 打发版 tag。
+- **将 termux 本地 shell 构建 pin 与 `pubspec.yaml` 的 `conduit_vt` commit 混写**：放弃，`termux-packages` 构建 pin（`ac296452b8ebec390cad3bce9060577c96099b10`，见 `tools/build-local-shell-binaries.sh:4` 及 `third_party/source-offer/`）与 Dart 终端库依赖 `conduit_vt` pin（`63d870d8f70131ea1edddc0693524a65d0016885`）无关联，须分别登记、不得混写。
 
 ## 来源
 - Git commit 历史：`7f3037b` (feat: migrate tmux to herdr), `c9da878` (build: offline maven seed)
-- 仓库配置文件：`pubspec.yaml`, `android/build.gradle.kts`, `README.md`
+- 仓库配置文件与构建快照：`pubspec.yaml`, `android/build.gradle.kts`, `README.md`, `tools/build-local-shell-binaries.sh`, `third_party/source-offer/termux-package-checksums.md`, `third_party/source-offer/termux-recipes/`
 
 ## 审查观察项（非契约破坏，供后续参考）
 - **README 上游链接与本分支 fork 依赖源差异**：`README.md` 顶部徽章及正文中 `[conduit_vt](https://github.com/gwitko/conduit_vt)`、仓库链接仍指向 `gwitko` 上游仓库；而本分支（`feat/alt-buffer-scroll-simulate`）`pubspec.yaml` 实际构建依赖源指向 fork 仓 `https://github.com/dorokuma/conduit_vt.git`（commit `63d870d8f70131ea1edddc0693524a65d0016885`）。保持 `README.md` 原文不改，以减少后续同步上游文档时的合并冲突。
