@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag override (e.g. v1.4.45). Defaults to v<versionName> from pubspec.yaml'
+        description: 'Release tag override (e.g. v1.x.y). Defaults to v<versionName> from pubspec.yaml'
         required: false
         type: string
 

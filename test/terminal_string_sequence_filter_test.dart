@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:conduit/features/terminal/domain/terminal_string_sequence_filter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -45,5 +47,12 @@ void main() {
       final filter = TerminalStringSequenceFilter();
       expect(filter.process('${esc}c'), '${esc}c');
     });
+  });
+
+  test('release-apk workflow has no pinned v1.4.45 or --clobber', () {
+    final workflow = File(
+      '.github/workflows/release-apk.yml',
+    ).readAsStringSync();
+    expect(RegExp(r'v1\.4\.45|--clobber').hasMatch(workflow), isFalse);
   });
 }
