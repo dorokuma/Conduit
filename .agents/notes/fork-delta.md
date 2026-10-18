@@ -36,10 +36,10 @@ supersedes: ""
 - **主工作分支**：`feat/alt-buffer-scroll-simulate`。
 - **发版 Tag 规则（已确认）**：以 `vX.Y.Z` 命名，其中 `X.Y` 跟随所同步的上游版本系列，`Z` 由本地发版独立递增、不复用不回填，`versionCode` 单调递增（现 `1.4.45+70`，下一版 `1.4.45+71`），tag 只打在 `Conduit-feat` 发版分支（`feat/alt-buffer-scroll-simulate`）且不依赖上游 tag 是否存在。
 
-#### CI 现状差距（登记，未在本轮修改）
-- `.github/workflows/release-apk.yml:21/74/81/88` 硬编码 `v1.4.45` 且 `gh release upload` 使用 `--clobber`，推 `feat/alt-buffer-scroll-simulate` 分支即触发，不读 `pubspec` 版本——下一次 `1.4.45+71` 发版若不改工作流，新 APK 会覆盖 `v1.4.45` 旧 Release。
-- `.github/workflows/release.yml` 只在 `master` push / `workflow_dispatch` 打 `v${versionName}` tag，与「tag 只打在发版分支」的既定规则不一致。
-- **处置结论**：这两处 CI 差距为已知登记项，下次发版前须先改工作流（如改为读 `pubspec` 或参数化 tag），本轮仅登记不改码。
+#### CI 现状差距（已在 fix/release-ci-version-source 修复）
+- `.github/workflows/release-apk.yml`：已移除硬编码版本 `v1.4.45` 与旧 tag 检出，动态从 `pubspec.yaml` 解析 `versionName` 与 `versionCode`（亦支持 `workflow_dispatch` 参数覆盖）；移除 `--clobber`，并新增产物存在性前置与上传校验，若同名 Release 已存在产物则直接报错退出（不覆盖）；Release 创建显式绑定 `--target "${GITHUB_SHA}"`，确保发版 tag 准确落在发版分支（`feat/alt-buffer-scroll-simulate`）。
+- `.github/workflows/release.yml`：触发分支已从 `master` 对齐至发版分支 `feat/alt-buffer-scroll-simulate`，并支持 `workflow_dispatch` 参数化输入；新增前置产物存在性校验以防覆盖；发版打 tag 职责收敛由 `release-apk.yml` 单一负责，`release.yml` 仅复用该 tag 挂载全架构 APK 产物。
+- **处置结论**：已知 CI 差距已修复并收敛发版职责，下次发版仅需在 `pubspec.yaml` 递增版本号并推送至发版分支即可安全自动发布。
 
 ## 被放弃的方案（必填）
 
@@ -54,7 +54,3 @@ supersedes: ""
 - `.github/workflows/release-apk.yml`、`.github/workflows/release.yml` 与 `.github/workflows/ci-test.yml`
 - Git 远程配置：`origin`（`dorokuma/Conduit`）与 `upstream`（`gwitko/Conduit`）
 - `README.md`（上游链接保留现状）
-
-## 审查观察项（非契约破坏，供后续参考）
-
-- 与 `Conduit` 仓重复的审查观察项（README 上游链接与本分支 fork 依赖源差异、双工作树笔记索引脚本对齐）已移除，统一参见 `/root/workspace/Conduit/.agents/notes/fork-delta.md`。
