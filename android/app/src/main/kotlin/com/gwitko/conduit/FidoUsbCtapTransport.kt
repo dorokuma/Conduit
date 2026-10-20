@@ -12,6 +12,8 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import io.flutter.plugin.common.MethodChannel
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
@@ -20,13 +22,24 @@ import kotlin.math.min
 class FidoUsbCtapTransport(private val context: Context) {
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private val lock = Any()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var session: Session? = null
+    private var permissionReceiver: BroadcastReceiver? = null
     private val random = SecureRandom()
+
+    /// MethodChannel.Result must be completed on the platform main thread.
+    private fun reply(result: MethodChannel.Result, block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
+    }
 
     fun handle(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "isSupported" -> result.success(true)
-            "hasDevice" -> result.success(findCandidate() != null)
+            "hasDevice" -> result.success(findCandidates().isNotEmpty())
             "open" -> open(result)
             "close" -> {
                 close()
@@ -41,9 +54,11 @@ class FidoUsbCtapTransport(private val context: Context) {
                 Thread {
                     try {
                         val response = transceive(command)
-                        result.success(response)
+                        reply(result) { result.success(response) }
                     } catch (error: Throwable) {
-                        result.error("usb_ctap", error.message ?: "USB security key failed.", null)
+                        reply(result) {
+                            result.error("usb_ctap", error.message ?: "USB security key failed.", null)
+                        }
                     }
                 }.start()
             }
@@ -52,31 +67,66 @@ class FidoUsbCtapTransport(private val context: Context) {
     }
 
     fun open(result: MethodChannel.Result) {
-        val candidate = findCandidate()
-        if (candidate == null) {
+        val candidates = findCandidates()
+        if (candidates.isEmpty()) {
             result.error("no_device", "No USB FIDO security key was found.", null)
             return
         }
 
-        if (usbManager.hasPermission(candidate.device)) {
-            Thread {
-                try {
-                    openCandidate(candidate)
-                    result.success(null)
-                } catch (error: Throwable) {
-                    result.error("usb_open", error.message ?: "Could not open USB security key.", null)
-                }
-            }.start()
+        // Prefer a device the user already granted permission for.
+        val permitted = candidates.firstOrNull { usbManager.hasPermission(it.device) }
+        if (permitted != null) {
+            openOnWorker(permitted, candidates, result)
             return
         }
 
-        requestPermission(candidate, result)
+        requestPermission(candidates.first(), result)
+    }
+
+    /// Tries each permitted candidate in turn so a non-FIDO HID device never
+    /// blocks a real security key.
+    private fun openOnWorker(
+        candidate: Candidate,
+        fallbackCandidates: List<Candidate>,
+        result: MethodChannel.Result,
+    ) {
+        Thread {
+            var lastError: Throwable? = null
+            val ordered = listOf(candidate) + fallbackCandidates.filter { it !== candidate }
+            for (item in ordered) {
+                if (!usbManager.hasPermission(item.device)) continue
+                try {
+                    openCandidate(item)
+                    reply(result) { result.success(null) }
+                    return@Thread
+                } catch (error: Throwable) {
+                    lastError = error
+                }
+            }
+            reply(result) {
+                result.error(
+                    "usb_open",
+                    lastError?.message ?: "Could not open USB security key.",
+                    null,
+                )
+            }
+        }.start()
     }
 
     fun close() {
+        unregisterPermissionReceiver()
         synchronized(lock) {
             session?.close()
             session = null
+        }
+    }
+
+    private fun unregisterPermissionReceiver() {
+        val receiver = permissionReceiver ?: return
+        permissionReceiver = null
+        try {
+            context.unregisterReceiver(receiver)
+        } catch (_: IllegalArgumentException) {
         }
     }
 
@@ -86,6 +136,7 @@ class FidoUsbCtapTransport(private val context: Context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action != action || !completed.compareAndSet(false, true)) return
+                permissionReceiver = null
                 try {
                     context.unregisterReceiver(this)
                 } catch (_: IllegalArgumentException) {
@@ -95,21 +146,13 @@ class FidoUsbCtapTransport(private val context: Context) {
                     result.error("permission_denied", "USB security key permission was denied.", null)
                     return
                 }
-                Thread {
-                    try {
-                        openCandidate(candidate)
-                        result.success(null)
-                    } catch (error: Throwable) {
-                        result.error(
-                            "usb_open",
-                            error.message ?: "Could not open USB security key.",
-                            null,
-                        )
-                    }
-                }.start()
+                openOnWorker(candidate, findCandidates(), result)
             }
         }
 
+        // Drop a previous pending request before registering the new one.
+        unregisterPermissionReceiver()
+        permissionReceiver = receiver
         val filter = IntentFilter(action)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -306,11 +349,20 @@ class FidoUsbCtapTransport(private val context: Context) {
         return true
     }
 
-    private fun findCandidate(): Candidate? {
+    private fun findCandidates(): List<Candidate> {
+        val candidates = mutableListOf<Candidate>()
         for (device in usbManager.deviceList.values) {
             for (interfaceIndex in 0 until device.interfaceCount) {
                 val usbInterface = device.getInterface(interfaceIndex)
                 if (usbInterface.interfaceClass != UsbConstants.USB_CLASS_HID) continue
+                // CTAP HID interfaces use subclass 0 / protocol 0. Skipping
+                // boot keyboards and mice (subclass 1) keeps their driver
+                // attached instead of force-claiming them.
+                if (usbInterface.interfaceSubclass != 0 ||
+                    usbInterface.interfaceProtocol != 0
+                ) {
+                    continue
+                }
 
                 var input: UsbEndpoint? = null
                 var output: UsbEndpoint? = null
@@ -324,11 +376,11 @@ class FidoUsbCtapTransport(private val context: Context) {
                 }
 
                 if (input != null && output != null) {
-                    return Candidate(device, usbInterface, input, output)
+                    candidates.add(Candidate(device, usbInterface, input, output))
                 }
             }
         }
-        return null
+        return candidates
     }
 
     private data class Candidate(

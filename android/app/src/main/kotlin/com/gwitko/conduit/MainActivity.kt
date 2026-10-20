@@ -119,6 +119,11 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
+    override fun onDestroy() {
+        fidoUsbCtapTransport.close()
+        super.onDestroy()
+    }
+
     companion object {
         const val BACKGROUND_KEEPALIVE_CHANNEL = "conduit/background_keepalive"
         const val FIDO_USB_CHANNEL = "conduit/fido_usb"
