@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.IBinder
 import android.provider.Settings
+import androidx.annotation.RequiresApi
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -156,6 +157,13 @@ class BackgroundConnectionService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        // Android 15 caps dataSync foreground services at six hours. Stop
+        // cleanly instead of letting the system kill the process.
+        stopSelf(startId)
+    }
+
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
@@ -207,10 +215,16 @@ class BackgroundConnectionService : Service() {
             val intent = Intent(context, BackgroundConnectionService::class.java).apply {
                 putExtra(SESSION_COUNT_EXTRA, sessionCount)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (_: IllegalStateException) {
+                // Android 12+ blocks foreground service starts from the
+                // background; keepalive simply stays off until the app is
+                // foregrounded again.
             }
         }
 
