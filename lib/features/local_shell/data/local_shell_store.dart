@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:conduit/features/local_shell/domain/local_shell_paths.dart';
 
@@ -45,16 +46,24 @@ class LocalShellStore {
     if (!await Directory(path).exists()) return;
     final busybox = await _ensureBusyboxLink();
     final env = {'LD_LIBRARY_PATH': paths.nativeLibraryDir};
-    await Process.run(busybox, [
-      'chmod',
-      '-R',
-      'u+rwX',
-      path,
-    ], environment: env);
+    try {
+      await Process.run(busybox, [
+        'chmod',
+        '-R',
+        'u+rwX',
+        path,
+      ], environment: env);
+    } catch (_) {
+      // Best effort: a missing busybox should not block the delete below.
+    }
     try {
       await Directory(path).delete(recursive: true);
     } catch (_) {
-      await Process.run(busybox, ['rm', '-rf', path], environment: env);
+      try {
+        await Process.run(busybox, ['rm', '-rf', path], environment: env);
+      } catch (_) {
+        // Callers verify whether the directory survived.
+      }
     }
   }
 
@@ -74,15 +83,23 @@ class LocalShellStore {
   Future<int> diskUsageBytes() async {
     final root = Directory(paths.installRoot);
     if (!await root.exists()) return 0;
+    // Walking a rootfs means tens of thousands of stat calls; keep that off
+    // the UI isolate.
+    return Isolate.run(() => _diskUsageSync(root.path));
+  }
+
+  static int _diskUsageSync(String rootPath) {
+    final root = Directory(rootPath);
+    if (!root.existsSync()) return 0;
     var total = 0;
     final pending = <Directory>[root];
     while (pending.isNotEmpty) {
       final directory = pending.removeLast();
       try {
-        await for (final entity in directory.list(followLinks: false)) {
+        for (final entity in directory.listSync(followLinks: false)) {
           if (entity is File) {
             try {
-              total += await entity.length();
+              total += entity.lengthSync();
             } catch (_) {}
           } else if (entity is Directory) {
             pending.add(entity);

@@ -480,17 +480,17 @@ class _HostsPageState extends State<HostsPage> {
     LocalShellInstance instance, {
     bool forceNew = false,
   }) async {
+    // Shared storage is an optional mount: ask for it once but never block
+    // the shell, which works fine without access to /mnt/android.
     if (widget.localShellController.sharedStorageFeatureEnabled &&
         !widget.localShellController.sharedStorageAccessGranted) {
-      await widget.localShellController.requestSharedStorageAccess();
-      if (!widget.localShellController.sharedStorageAccessGranted) {
-        if (!mounted) return;
+      unawaited(widget.localShellController.requestSharedStorageAccess());
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Grant file access, then open the shell again.'),
+            content: Text('Running without shared storage access.'),
           ),
         );
-        return;
       }
     }
     final existing = widget.workspaceController.sessions
@@ -570,6 +570,9 @@ class _HostsPageState extends State<HostsPage> {
     );
     if (savedHost != null) {
       await widget.hostsController.upsert(savedHost);
+      // The session captured the old SavedHost by id; drop it so the next
+      // connect uses the edited credentials, port or snippet settings.
+      await widget.workspaceController.closeForHost(savedHost.id);
     }
   }
 
@@ -660,6 +663,7 @@ class _HostsPageState extends State<HostsPage> {
       ),
     );
     if (shouldDelete ?? false) {
+      await widget.workspaceController.closeForHost(host.id);
       await widget.hostsController.remove(host);
     }
   }

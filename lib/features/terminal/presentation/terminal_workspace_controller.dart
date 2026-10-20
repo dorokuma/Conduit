@@ -112,6 +112,17 @@ class TerminalWorkspaceController extends ChangeNotifier {
     }
   }
 
+  /// Closes sessions bound to [hostId] so an edited host reconnects with the
+  /// new configuration and a deleted host leaves nothing behind.
+  Future<void> closeForHost(String hostId) async {
+    final matches = _sessions
+        .where((session) => session.host.id == hostId)
+        .toList(growable: false);
+    for (final session in matches) {
+      await close(session);
+    }
+  }
+
   @override
   void dispose() {
     for (final session in _sessions) {

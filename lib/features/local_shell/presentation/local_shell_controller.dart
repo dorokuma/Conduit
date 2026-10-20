@@ -299,7 +299,13 @@ class LocalShellController extends ChangeNotifier {
     if (paths == null || anyBusy) return;
     try {
       await LocalShellStore(paths).wipe();
-    } catch (_) {}
+    } catch (error) {
+      // Only fail when leftovers remain; otherwise the delete effectively
+      // succeeded and the exception was incidental.
+      if (await Directory(paths.installRoot).exists()) {
+        throw AppFailure('Could not remove the Linux filesystem.', error);
+      }
+    }
     _instances = [
       for (final instance in _instances)
         if (instance.id != instanceId) instance,
