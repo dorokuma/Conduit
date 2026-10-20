@@ -195,6 +195,8 @@ jobs:
       - name: Locate built APKs
         id: apks
         shell: bash
+        env:
+          APP_VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           set -euo pipefail
           apk_dir="build/app/outputs/flutter-apk"
@@ -215,6 +217,22 @@ jobs:
               exit 1
             fi
           done
+          # Portable arm64 artifact: same binary as the full-flavor APK, but
+          # with the stable conduit-<version>-arm64-release.apk name. Building
+          # it here reuses the jniLibs produced above instead of rebuilding in
+          # a second workflow.
+          portable_source=""
+          for candidate in "${apk_dir}/app-arm64-v8a-full-release.apk" "${apk_dir}/app-arm64-v8a-release.apk"; do
+            if [[ -f "${candidate}" ]]; then
+              portable_source="${candidate}"
+              break
+            fi
+          done
+          if [[ -n "${portable_source}" && -n "${APP_VERSION:-}" ]]; then
+            portable="${apk_dir}/conduit-${APP_VERSION}-arm64-release.apk"
+            cp "${portable_source}" "${portable}"
+            files+=("${portable}")
+          fi
           {
             echo "files<<EOF"
             printf '%s\n' "${files[@]}"
