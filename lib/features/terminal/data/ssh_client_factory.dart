@@ -45,7 +45,7 @@ class SshClientFactory {
         timeout: Duration(seconds: host.connectionTimeoutSeconds),
       );
       final identities = _identitiesFor(host);
-      return SSHClient(
+      final client = SSHClient(
         socket,
         username: host.username.trim(),
         identities: identities,
@@ -61,6 +61,21 @@ class SshClientFactory {
           );
         },
       );
+      // A peer can accept TCP and then stall before the SSH handshake or
+      // authentication completes; bound that wait with the same timeout.
+      try {
+        await client.authenticated.timeout(
+          Duration(seconds: host.connectionTimeoutSeconds),
+          onTimeout: () => throw AppFailure(
+            'Timed out while authenticating with '
+            '${host.host}:${host.port}.',
+          ),
+        );
+      } catch (_) {
+        client.close();
+        rethrow;
+      }
+      return client;
     } catch (_) {
       unawaited(socket?.close() ?? Future<void>.value());
       rethrow;
