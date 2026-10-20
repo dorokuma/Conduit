@@ -206,17 +206,22 @@ class SftpBrowserController extends ChangeNotifier {
     if (session == null) {
       throw const AppFailure('Not connected.');
     }
-    if (entry.isDirectory) {
-      return _downloadDirectory(session, entry);
+    if (_busy) {
+      throw const AppFailure('A transfer is already in progress.');
     }
-    _transfer = SftpTransfer(
-      name: entry.name,
-      isUpload: false,
-      done: 0,
-      total: entry.size,
-    );
+    _busy = true;
     _safeNotify();
     try {
+      if (entry.isDirectory) {
+        return await _downloadDirectory(session, entry);
+      }
+      _transfer = SftpTransfer(
+        name: entry.name,
+        isUpload: false,
+        done: 0,
+        total: entry.size,
+      );
+      _safeNotify();
       final bytes = await session.read(
         entry.path,
         onProgress: (read, total) {
@@ -231,6 +236,7 @@ class SftpBrowserController extends ChangeNotifier {
       );
       return await fileExport.save(entry.name, bytes);
     } finally {
+      _busy = false;
       _transfer = null;
       _safeNotify();
     }
@@ -289,7 +295,7 @@ class SftpBrowserController extends ChangeNotifier {
           archivePath: childArchivePath,
           onBytesRead: onBytesRead,
         );
-      } else if (!child.isSymlink) {
+      } else if (child.kind == SftpEntryKind.file) {
         var lastRead = 0;
         final bytes = await session.read(
           child.path,
