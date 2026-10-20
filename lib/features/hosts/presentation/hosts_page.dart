@@ -619,7 +619,16 @@ class _HostsPageState extends State<HostsPage> {
     if (keepSecrets == null) return;
     final base = keepSecrets
         ? host
-        : host.copyWith(password: '', privateKey: '', passphrase: '');
+        : host.copyWith(
+            password: '',
+            privateKey: '',
+            passphrase: '',
+            hardwareKeys: const [],
+            snippets: [
+              for (final snippet in host.snippets)
+                snippet.hidden ? snippet.copyWith(text: '') : snippet,
+            ],
+          );
     await widget.hostsController.upsert(
       base.copyWith(
         id: const Uuid().v4(),

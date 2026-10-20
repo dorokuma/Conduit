@@ -149,9 +149,13 @@ class HostsController extends ChangeNotifier {
     return _serializeWrite(() async {
       final mergedById = {for (final host in _hosts) host.id: host};
       for (final host in hosts) {
-        if (host.id.isNotEmpty) {
-          mergedById[host.id] = host;
+        if (host.id.isEmpty) {
+          continue;
         }
+        final existing = mergedById[host.id];
+        mergedById[host.id] = existing == null
+            ? host
+            : _mergeImportedHost(existing, host);
       }
 
       _errorMessage = null;
@@ -182,6 +186,38 @@ class HostsController extends ChangeNotifier {
         notifyListeners();
       }
     });
+  }
+
+  /// Backups exported without secrets carry empty credentials. Keep whatever
+  /// the user already has stored locally instead of wiping it, and restore the
+  /// text of hidden snippets that public exports strip.
+  SavedHost _mergeImportedHost(SavedHost local, SavedHost imported) {
+    final importedHasSecrets =
+        imported.password.isNotEmpty ||
+        imported.privateKey.isNotEmpty ||
+        imported.passphrase.isNotEmpty ||
+        imported.hardwareKeys.isNotEmpty;
+    if (importedHasSecrets) {
+      return imported;
+    }
+    final localSnippetsById = {
+      for (final snippet in local.snippets) snippet.id: snippet,
+    };
+    return imported.copyWith(
+      password: local.password,
+      privateKey: local.privateKey,
+      passphrase: local.passphrase,
+      hardwareKeys: local.hardwareKeys,
+      snippets: [
+        for (final snippet in imported.snippets)
+          if (snippet.hidden &&
+              snippet.text.isEmpty &&
+              localSnippetsById[snippet.id] != null)
+            snippet.copyWith(text: localSnippetsById[snippet.id]!.text)
+          else
+            snippet,
+      ],
+    );
   }
 
   Future<void> remove(SavedHost host) {

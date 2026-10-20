@@ -76,10 +76,13 @@ class AppBackupService {
       sortMode: sortMode,
       manualOrder: manualOrder,
     );
-    await _hostKeyVerifier.saveTrustedKeys([
-      ...await _hostKeyVerifier.loadTrustedKeys(),
-      ...trustedKeys,
-    ]);
+    final existingTrustedKeys = await _hostKeyVerifier.loadTrustedKeys();
+    final encryptedBackup = document['encrypted'] == true;
+    await _hostKeyVerifier.saveTrustedKeys(
+      encryptedBackup
+          ? [...existingTrustedKeys, ...trustedKeys]
+          : _appendNewTrustedKeys(existingTrustedKeys, trustedKeys),
+    );
     await _restoreTheme(payload['theme']);
 
     return AppBackupImportResult(
@@ -186,7 +189,9 @@ class AppBackupService {
       }
     }
     final snippets = _parseSnippets(json['terminalSnippets']);
-    await _themeController.setTerminalSnippets(snippets);
+    await _themeController.setTerminalSnippets(
+      _mergeTerminalSnippets(_themeController.terminalSnippets, snippets),
+    );
     final showLocalShell = json['showLocalShell'];
     if (showLocalShell is bool) {
       await _themeController.setShowLocalShell(showLocalShell);
@@ -215,6 +220,39 @@ class AppBackupService {
         'This does not look like a Conduit backup.',
       );
     }
+  }
+
+  /// Public exports strip the text of hidden snippets; keep the local text for
+  /// hidden snippets that the backup cannot restore.
+  List<TerminalSnippet> _mergeTerminalSnippets(
+    List<TerminalSnippet> local,
+    List<TerminalSnippet> imported,
+  ) {
+    final localById = {for (final snippet in local) snippet.id: snippet};
+    return [
+      for (final snippet in imported)
+        if (snippet.hidden &&
+            snippet.text.isEmpty &&
+            localById[snippet.id] != null)
+          snippet.copyWith(text: localById[snippet.id]!.text)
+        else
+          snippet,
+    ];
+  }
+
+  /// Unencrypted backups can be produced by anyone, so they must not replace
+  /// host keys that are already trusted; only records for new endpoints are
+  /// added.
+  List<HostKeyRecord> _appendNewTrustedKeys(
+    List<HostKeyRecord> existing,
+    List<HostKeyRecord> imported,
+  ) {
+    final keys = {for (final record in existing) record.key};
+    return [
+      ...existing,
+      for (final record in imported)
+        if (keys.add(record.key)) record,
+    ];
   }
 
   Map<String, Object?> _extractPayload(
