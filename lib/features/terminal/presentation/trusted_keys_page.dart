@@ -78,9 +78,10 @@ class _TrustedKeysPageState extends State<TrustedKeysPage> {
                 if (snapshot.connectionState != ConnectionState.done) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final records = snapshot.data ?? const [];
+                final records = List<HostKeyRecord>.of(
+                  snapshot.data ?? const <HostKeyRecord>[],
+                )..sort((a, b) => a.host.compareTo(b.host));
                 if (records.isEmpty) return const _EmptyState();
-                records.sort((a, b) => a.host.compareTo(b.host));
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
                   itemCount: records.length,

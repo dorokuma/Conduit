@@ -351,7 +351,9 @@ class TerminalKeyboardBar extends StatelessWidget {
   }
 
   void _sendSnippet(TerminalSnippet snippet) {
-    final text = snippet.submit ? '${snippet.text}\r' : snippet.text;
+    final text = snippet.submit
+        ? '${snippet.text}${controller.enterSequence.value}'
+        : snippet.text;
     if (text.isNotEmpty) {
       _sendText(text);
     } else {
@@ -377,7 +379,9 @@ class TerminalKeyboardBar extends StatelessWidget {
   void _triggerCustomItem(TerminalKeyboardItem item) {
     switch (item.kind) {
       case TerminalKeyboardItemKind.customText:
-        final text = item.submit ? '${item.text ?? ''}\r' : item.text;
+        final text = item.submit
+            ? '${item.text ?? ''}${controller.enterSequence.value}'
+            : item.text;
         if (text != null && text.isNotEmpty) {
           _sendText(text);
         } else {

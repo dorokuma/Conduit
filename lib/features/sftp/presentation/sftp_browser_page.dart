@@ -413,7 +413,7 @@ class _SftpBrowserPageState extends State<SftpBrowserPage> {
           ),
         ],
       ),
-    );
+    ).whenComplete(controller.dispose);
   }
 
   void _showSnack(String message) {

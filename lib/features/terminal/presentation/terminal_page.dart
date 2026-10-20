@@ -264,8 +264,10 @@ class _TerminalPageState extends State<TerminalPage> {
                           // to send. Delivering Enter in its own read makes it an
                           // isolated keypress that submits regardless of line length.
                           activeSession.sendText(line);
+                          final session = activeSession;
                           Future.delayed(const Duration(milliseconds: 120), () {
-                            activeSession.sendKey(TerminalKey.enter);
+                            if (!mounted || !session.isConnected) return;
+                            session.sendKey(TerminalKey.enter);
                           });
                           setState(() {
                             // De-duplicate: drop any earlier identical entry so the

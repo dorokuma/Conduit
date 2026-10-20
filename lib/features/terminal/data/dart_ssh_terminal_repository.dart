@@ -10,10 +10,12 @@ import 'package:conduit/features/terminal/domain/ssh_terminal_session.dart';
 import 'package:dartssh2/dartssh2.dart';
 
 class DartSshTerminalRepository implements SshTerminalRepository {
-  const DartSshTerminalRepository(this._hostKeyVerifier);
+  DartSshTerminalRepository(this._hostKeyVerifier);
 
   final HostKeyVerifier _hostKeyVerifier;
-  SshClientFactory get _clientFactory => SshClientFactory(_hostKeyVerifier);
+  late final SshClientFactory _clientFactory = SshClientFactory(
+    _hostKeyVerifier,
+  );
 
   HostKeyVerifier get hostKeyVerifier => _hostKeyVerifier;
 
