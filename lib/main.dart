@@ -228,40 +228,43 @@ class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
             SystemChrome.setSystemUIOverlayStyle(overlayStyle);
             return AnnotatedRegion<SystemUiOverlayStyle>(
               value: overlayStyle,
-              child: Stack(
-                children: [
-                  child ?? const SizedBox.shrink(),
-                  AndroidThreeButtonNavigationBackground(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                  ),
-                ],
+              child: ListenableBuilder(
+                listenable: widget.lockController,
+                builder: (context, _) {
+                  final locked = !widget.lockController.isUnlocked;
+                  return Stack(
+                    children: [
+                      child ?? const SizedBox.shrink(),
+                      // Lock over the whole navigator so routes pushed above
+                      // the home page cannot stay visible while locked.
+                      if (locked)
+                        Positioned.fill(
+                          child: LockPage(
+                            controller: widget.lockController,
+                            themeController: widget.themeController,
+                          ),
+                        ),
+                      AndroidThreeButtonNavigationBackground(
+                        color: Theme.of(context).scaffoldBackgroundColor,
+                      ),
+                    ],
+                  );
+                },
               ),
             );
           },
-          home: ListenableBuilder(
-            listenable: widget.lockController,
-            builder: (context, _) {
-              if (!widget.lockController.isUnlocked) {
-                return LockPage(
-                  controller: widget.lockController,
-                  themeController: widget.themeController,
-                );
-              }
-
-              return HostsPage(
-                hostsController: widget.hostsController,
-                lockController: widget.lockController,
-                terminalRepository: widget.terminalRepository,
-                workspaceController: widget.workspaceController,
-                localShellController: widget.localShellController,
-                themeController: widget.themeController,
-                hostKeyVerifier: widget.hostKeyVerifier,
-                promptCoordinator: widget.promptCoordinator,
-                sftpRepository: widget.sftpRepository,
-                backupService: widget.backupService,
-                fileExport: widget.fileExport,
-              );
-            },
+          home: HostsPage(
+            hostsController: widget.hostsController,
+            lockController: widget.lockController,
+            terminalRepository: widget.terminalRepository,
+            workspaceController: widget.workspaceController,
+            localShellController: widget.localShellController,
+            themeController: widget.themeController,
+            hostKeyVerifier: widget.hostKeyVerifier,
+            promptCoordinator: widget.promptCoordinator,
+            sftpRepository: widget.sftpRepository,
+            backupService: widget.backupService,
+            fileExport: widget.fileExport,
           ),
         );
       },
