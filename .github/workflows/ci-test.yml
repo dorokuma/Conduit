@@ -39,6 +39,30 @@ jobs:
       - name: Test
         run: flutter test
 
+      # The app variant pulls in a Flutter plugin with its own CMakeLists, so the
+      # debug APK needs CMake 3.22.1 plus a pinned NDK; the hosted image ships
+      # neither at that revision. Mirror what release.yml provisions.
+      - name: Install Android SDK packages for the native build
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager_bin="$(command -v sdkmanager || echo "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "${sdkmanager_bin}" --licenses > /dev/null 2>&1 || true
+          "${sdkmanager_bin}" \
+            "platforms;android-34" "platforms;android-35" "platforms;android-36" \
+            "build-tools;34.0.0" "build-tools;35.0.0" "build-tools;36.0.0" \
+            "cmake;3.22.1"
+          ndk_dir="$(ls -d "${ANDROID_HOME}"/ndk/* 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [[ -z "${ndk_dir}" ]]; then
+            "${sdkmanager_bin}" "ndk;28.2.13676358"
+            ndk_dir="${ANDROID_HOME}/ndk/28.2.13676358"
+          fi
+          echo "Using NDK at ${ndk_dir}"
+          {
+            echo "ANDROID_NDK_HOME=${ndk_dir}"
+            echo "ANDROID_NDK_ROOT=${ndk_dir}"
+          } >> "${GITHUB_ENV}"
+
       - name: Build debug APK
         run: flutter build apk --debug --flavor full
 
