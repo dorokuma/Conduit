@@ -34,17 +34,11 @@ val ndkVersionFromEnv: String? =
         }
 
 subprojects {
-    val version = ndkVersionFromEnv
-    if (!version.isNullOrEmpty()) {
-        plugins.withId("com.android.application") {
-            extensions.configure<AppExtension>("android") {
-                ndkVersion = version
-            }
-        }
-        plugins.withId("com.android.library") {
-            extensions.configure<LibraryExtension>("android") {
-                ndkVersion = version
-            }
+    afterEvaluate {
+        val version = ndkVersionFromEnv
+        if (!version.isNullOrEmpty()) {
+            extensions.findByType(AppExtension::class.java)?.ndkVersion = version
+            extensions.findByType(LibraryExtension::class.java)?.ndkVersion = version
         }
     }
 }
