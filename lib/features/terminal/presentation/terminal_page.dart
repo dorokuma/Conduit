@@ -284,71 +284,6 @@ class _TerminalPageState extends State<TerminalPage> {
                         ),
                       ),
                     ),
-                    if (_composeMode)
-                      _ComposeInputBar(
-                        palette: palette,
-                        brightness: brightness,
-                        history: _composeHistory,
-                        initialText: _composeDraft,
-                        onSend: (line) {
-                          // Send the line, then deliver Enter as a SEPARATE write a
-                          // short moment later. Some remote TUIs (e.g. Claude Code
-                          // and other Ink/readline apps) classify a single terminal
-                          // read that contains a long line ending in CR as a *paste*
-                          // and insert the trailing CR as a literal newline instead
-                          // of submitting — so a wrapping compose line silently fails
-                          // to send. Delivering Enter in its own read makes it an
-                          // isolated keypress that submits regardless of line length.
-                          activeSession.sendText(line);
-                          final session = activeSession;
-                          Future.delayed(const Duration(milliseconds: 120), () {
-                            if (!mounted || !session.isConnected) return;
-                            session.sendKey(TerminalKey.enter);
-                          });
-                          setState(() {
-                            // De-duplicate: drop any earlier identical entry so the
-                            // ring keeps distinct lines (re-sending a recalled line
-                            // can't churn duplicates that evict good older ones).
-                            _composeHistory.remove(line);
-                            _composeHistory.add(line);
-                            if (_composeHistory.length > _composeHistoryLimit) {
-                              _composeHistory.removeAt(0);
-                            }
-                            _composeDraft = '';
-                          });
-                        },
-                        onClose: (draft) {
-                          setState(() {
-                            _composeMode = false;
-                            _composeDraft = draft; // preserve the unsent draft
-                          });
-                          _focusNode.requestFocus();
-                        },
-                      )
-                    else
-                      TerminalKeyboardBar(
-                        controller: activeSession,
-                        focusNode: _focusNode,
-                        palette: palette,
-                        brightness: brightness,
-                        rows: widget.themeController.terminalKeyboardRows,
-                        globalSnippets: widget.themeController.terminalSnippets,
-                        fullscreen: _fullscreen,
-                        onToggleFullscreen: _toggleFullscreen,
-                        composeActive: _composeMode,
-                        onToggleCompose: () =>
-                            setState(() => _composeMode = !_composeMode),
-                        herdrPrefixKey: activeSession.host.herdrPrefixKey,
-                        herdrScrollMode: _herdrScrollMode,
-                        onEnterHerdrScrollMode: () {
-                          setState(() => _herdrScrollMode = true);
-                          _focusNode.requestFocus();
-                        },
-                        onExitHerdrScrollMode: () {
-                          setState(() => _herdrScrollMode = false);
-                          _focusNode.requestFocus();
-                        },
-                      ),
                     _composeMode
                         ? _ComposeInputBar(
                             palette: palette,
@@ -365,10 +300,12 @@ class _TerminalPageState extends State<TerminalPage> {
                               // to send. Delivering Enter in its own read makes it an
                               // isolated keypress that submits regardless of line length.
                               activeSession.sendText(line);
+                              final session = activeSession;
                               Future.delayed(
                                 const Duration(milliseconds: 120),
                                 () {
-                                  activeSession.sendKey(TerminalKey.enter);
+                                  if (!mounted || !session.isConnected) return;
+                                  session.sendKey(TerminalKey.enter);
                                 },
                               );
                               setState(() {

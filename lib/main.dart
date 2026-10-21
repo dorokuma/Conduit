@@ -287,9 +287,17 @@ class _ConduitAppState extends State<ConduitApp> with WidgetsBindingObserver {
                       // the home page cannot stay visible while locked.
                       if (locked)
                         Positioned.fill(
-                          child: LockPage(
-                            controller: widget.lockController,
-                            themeController: widget.themeController,
+                          // The builder sits above the navigator, so give the
+                          // lock page its own Overlay for tooltips and ink.
+                          child: Overlay(
+                            initialEntries: [
+                              OverlayEntry(
+                                builder: (context) => LockPage(
+                                  controller: widget.lockController,
+                                  themeController: widget.themeController,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       AndroidThreeButtonNavigationBackground(
