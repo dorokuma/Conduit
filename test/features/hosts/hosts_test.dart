@@ -287,10 +287,6 @@ void main() {
       expect(bothPresent.startHerdrOnConnect, isFalse);
       expect(bothPresent.herdrPrefixKey, HerdrPrefixKey.controlB);
       expect(bothPresent.herdrSessionName, 'new-session');
-      });
-
-      expect(decoded.startHerdrOnConnect, isTrue);
-      expect(decoded.herdrSessionName, defaultHerdrSessionName);
     });
 
     test('preserves hardware key auth method', () {

@@ -20,8 +20,8 @@ class TerminalSurface extends StatefulWidget {
     required this.predictiveEchoEnabled,
     required this.terminalMouseInput,
     required this.focusNode,
-    required this.herdrScrollMode,
-    required this.onExitHerdrScrollMode,
+    this.herdrScrollMode = false,
+    this.onExitHerdrScrollMode,
     this.suppressKeyboardOnFocus = false,
     this.terminalViewKey,
     super.key,
@@ -37,7 +37,7 @@ class TerminalSurface extends StatefulWidget {
   final bool terminalMouseInput;
   final FocusNode? focusNode;
   final bool herdrScrollMode;
-  final VoidCallback onExitHerdrScrollMode;
+  final VoidCallback? onExitHerdrScrollMode;
   final bool suppressKeyboardOnFocus;
 
   /// Optional externally-owned key for the inner [TerminalView] state.

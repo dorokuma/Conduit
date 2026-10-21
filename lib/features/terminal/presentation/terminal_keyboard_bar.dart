@@ -23,10 +23,10 @@ class TerminalKeyboardBar extends StatelessWidget {
     required this.onToggleFullscreen,
     this.composeActive = false,
     this.onToggleCompose,
-    required this.onEnterHerdrScrollMode,
-    required this.onExitHerdrScrollMode,
+    this.onEnterHerdrScrollMode,
+    this.onExitHerdrScrollMode,
     required this.herdrPrefixKey,
-    required this.herdrScrollMode,
+    this.herdrScrollMode = false,
     this.keyboardVisible = false,
     this.onToggleKeyboard,
     super.key,
@@ -42,8 +42,8 @@ class TerminalKeyboardBar extends StatelessWidget {
   final VoidCallback onToggleFullscreen;
   final bool composeActive;
   final VoidCallback? onToggleCompose;
-  final VoidCallback onEnterHerdrScrollMode;
-  final VoidCallback onExitHerdrScrollMode;
+  final VoidCallback? onEnterHerdrScrollMode;
+  final VoidCallback? onExitHerdrScrollMode;
   final HerdrPrefixKey herdrPrefixKey;
   final bool herdrScrollMode;
 
@@ -391,7 +391,7 @@ class TerminalKeyboardBar extends StatelessWidget {
 
   void _toggleHerdrScrollMode() {
     if (herdrScrollMode) {
-      onExitHerdrScrollMode();
+      onExitHerdrScrollMode?.call();
       _focusTerminal();
       return;
     }
