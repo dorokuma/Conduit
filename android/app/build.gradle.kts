@@ -25,7 +25,7 @@ val ndkRevisionFromEnv: String? =
 android {
     namespace = "com.gwitko.conduit"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = ndkRevisionFromEnv ?: "28.2.13676358"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

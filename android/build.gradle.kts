@@ -35,10 +35,12 @@ val ndkVersionFromEnv: String? =
 
 subprojects {
     afterEvaluate {
-        val version = ndkVersionFromEnv
-        if (!version.isNullOrEmpty()) {
-            extensions.findByType(AppExtension::class.java)?.ndkVersion = version
-            extensions.findByType(LibraryExtension::class.java)?.ndkVersion = version
+        val ndkHome = System.getenv("ANDROID_NDK_HOME")
+        if (!ndkHome.isNullOrEmpty() && java.io.File(ndkHome).isDirectory) {
+            // ndkPath bypasses the SDK-managed ndk/<version> lookup, so the
+            // toolchain NDK that CI provisions is used as-is.
+            extensions.findByType(AppExtension::class.java)?.ndkPath = ndkHome
+            extensions.findByType(LibraryExtension::class.java)?.ndkPath = ndkHome
         }
     }
 }
