@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math';
 
 import 'package:conduit/core/theme/app_palette.dart';
@@ -12,6 +13,7 @@ import 'package:conduit/features/hosts/presentation/hosts_controller.dart';
 import 'package:conduit/features/snippets/domain/terminal_snippet.dart';
 import 'package:conduit/features/terminal/domain/host_key_verifier.dart';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:pinenacl/x25519.dart';
 
@@ -57,7 +59,7 @@ class AppBackupService {
       throw AppBackupException(validation);
     }
     final plaintext = _encodeJson(payload);
-    return _encodeJson(_crypto.encrypt(plaintext, secret));
+    return _encodeJson(await _crypto.encryptAsync(plaintext, secret));
   }
 
   Future<AppBackupImportResult> importBackup(
@@ -65,7 +67,7 @@ class AppBackupService {
     String? password,
   }) async {
     final document = _decodeDocument(bytes);
-    final payload = _extractPayload(document, password: password);
+    final payload = await _extractPayload(document, password: password);
     final hosts = _parseHosts(payload['hosts']);
     final sortMode = _parseSortMode(payload['hostSortMode']);
     final manualOrder = _parseStringList(payload['hostManualOrder']);
@@ -250,10 +252,10 @@ class AppBackupService {
     ];
   }
 
-  Map<String, Object?> _extractPayload(
+  Future<Map<String, Object?>> _extractPayload(
     Map<String, Object?> document, {
     String? password,
-  }) {
+  }) async {
     if (document['format'] != 'conduit.backup' || document['version'] != 1) {
       throw const AppBackupException('This backup format is not supported.');
     }
@@ -264,7 +266,7 @@ class AppBackupService {
         throw const AppBackupException('Enter the backup password.');
       }
       try {
-        final plaintext = _crypto.decrypt(document, secret);
+        final plaintext = await _crypto.decryptAsync(document, secret);
         final decoded = jsonDecode(utf8.decode(plaintext));
         if (decoded is Map<Object?, Object?>) {
           return Map<String, Object?>.from(decoded);
@@ -391,7 +393,7 @@ class AppBackupCrypto {
   const AppBackupCrypto();
 
   static const iterations = 210000;
-  static const maxIterations = 1000000;
+  static const maxIterations = 600000;
   static const _keyLength = 32;
   static const _saltLength = 32;
   static const _nonceLength = 24;
@@ -422,6 +424,32 @@ class AppBackupCrypto {
         'ciphertext': base64Encode(encrypted.cipherText.asTypedList),
       },
     };
+  }
+
+  /// Runs the KDF-heavy encryption off the UI isolate in release builds.
+  ///
+  /// Debug/JIT builds keep the work inline: a fresh isolate re-JITs the
+  /// crypto code, which costs ~30 s in slow environments and would dominate
+  /// test runs. AOT release builds have no such warm-up penalty.
+  Future<Map<String, Object?>> encryptAsync(
+    Uint8List plaintext,
+    String password,
+  ) {
+    if (!kReleaseMode) {
+      return Future.value(encrypt(plaintext, password));
+    }
+    return Isolate.run(() => encrypt(plaintext, password));
+  }
+
+  /// Runs the KDF-heavy decryption off the UI isolate in release builds.
+  Future<Uint8List> decryptAsync(
+    Map<String, Object?> document,
+    String password,
+  ) {
+    if (!kReleaseMode) {
+      return Future.value(decrypt(document, password));
+    }
+    return Isolate.run(() => decrypt(document, password));
   }
 
   Uint8List decrypt(Map<String, Object?> document, String password) {
