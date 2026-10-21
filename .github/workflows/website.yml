@@ -19,6 +19,10 @@ concurrency:
 
 jobs:
   build:
+    # The published Pages site belongs to the upstream repository. Forks have no
+    # Pages site configured, so actions/configure-pages fails with "Get Pages site
+    # failed" on every push that touches website/. Skip the job outside upstream.
+    if: github.repository_owner == 'gwitko'
     runs-on: ubuntu-latest
     defaults:
       run:

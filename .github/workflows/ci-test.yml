@@ -3,7 +3,8 @@ name: CI test
 on:
   push:
     branches:
-      - feat/alt-buffer-scroll-simulate
+      - master
+      - 'feat/**'
   pull_request:
   workflow_dispatch:
 
