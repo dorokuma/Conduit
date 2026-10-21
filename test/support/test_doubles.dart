@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cbor/cbor.dart';
 import 'package:conduit/core/theme/app_palette.dart';
@@ -504,6 +505,18 @@ class FakeSftpSession implements SftpSession {
   }
 
   @override
+  Future<String> downloadToFile(
+    String path, {
+    void Function(int bytesRead, int? total)? onProgress,
+  }) async {
+    final bytes = await read(path, onProgress: onProgress);
+    final directory = await Directory.systemTemp.createTemp('conduit_fake_');
+    final file = File('${directory.path}/${path.split('/').last}');
+    await file.writeAsBytes(bytes);
+    return file.path;
+  }
+
+  @override
   Future<void> write(
     String path,
     Stream<Uint8List> data,
@@ -538,7 +551,8 @@ class RecordingFileExport implements FileExport {
   final List<(String, Uint8List)> saved = [];
 
   @override
-  Future<String?> save(String fileName, Uint8List bytes) async {
+  Future<String?> saveFromPath(String sourcePath, String fileName) async {
+    final bytes = await File(sourcePath).readAsBytes();
     saved.add((fileName, bytes));
     return 'Downloads/$fileName';
   }

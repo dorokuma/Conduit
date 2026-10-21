@@ -12,6 +12,15 @@ abstract class SftpSession {
     void Function(int bytesRead, int? total)? onProgress,
   });
 
+  /// Streams [path] into a temporary local file and returns its path.
+  ///
+  /// Keeps memory flat for large downloads: chunks are written as they arrive
+  /// instead of accumulating in a `BytesBuilder`.
+  Future<String> downloadToFile(
+    String path, {
+    void Function(int bytesRead, int? total)? onProgress,
+  });
+
   Future<void> write(
     String path,
     Stream<Uint8List> data,

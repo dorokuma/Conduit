@@ -20,7 +20,7 @@ import 'package:conduit/features/local_shell/data/local_terminal_repository.dart
 import 'package:conduit/features/local_shell/local_shell_licenses.dart';
 import 'package:conduit/features/local_shell/presentation/local_shell_controller.dart';
 import 'package:conduit/features/sftp/data/dart_ssh_sftp_repository.dart';
-import 'package:conduit/features/sftp/data/file_picker_file_export.dart';
+import 'package:conduit/features/sftp/data/system_file_export.dart';
 import 'package:conduit/features/sftp/domain/file_export.dart';
 import 'package:conduit/features/sftp/domain/sftp_repository.dart';
 import 'package:conduit/features/terminal/data/connectivity_plus_network.dart';
@@ -109,7 +109,7 @@ void main() {
       themeController: themeController,
       hostKeyVerifier: hostKeyVerifier,
     );
-    const fileExport = FilePickerFileExport();
+    const fileExport = SystemFileExport();
 
     unawaited(themeController.load());
 

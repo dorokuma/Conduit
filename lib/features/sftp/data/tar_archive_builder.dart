@@ -6,6 +6,9 @@ import 'package:conduit/core/app_failure.dart';
 class TarArchiveBuilder {
   final BytesBuilder _bytes = BytesBuilder(copy: false);
 
+  /// Current archive size in bytes.
+  int get length => _bytes.length;
+
   void addDirectory(String path, DateTime? modifiedAt) {
     final normalized = path.endsWith('/') ? path : '$path/';
     _addHeader(

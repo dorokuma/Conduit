@@ -222,7 +222,7 @@ class SftpBrowserController extends ChangeNotifier {
         total: entry.size,
       );
       _safeNotify();
-      final bytes = await session.read(
+      final tempPath = await session.downloadToFile(
         entry.path,
         onProgress: (read, total) {
           _transfer = SftpTransfer(
@@ -234,11 +234,27 @@ class SftpBrowserController extends ChangeNotifier {
           _safeNotify();
         },
       );
-      return await fileExport.save(entry.name, bytes);
+      try {
+        return await fileExport.saveFromPath(tempPath, entry.name);
+      } finally {
+        await _deleteTempFile(tempPath);
+      }
     } finally {
       _busy = false;
       _transfer = null;
       _safeNotify();
+    }
+  }
+
+  /// Directory archives are still assembled in memory; refuse to grow past a
+  /// safe bound instead of risking an out-of-memory kill on large trees.
+  static const int _maxDirectoryArchiveBytes = 96 * 1024 * 1024;
+
+  Future<void> _deleteTempFile(String path) async {
+    try {
+      await File(path).parent.delete(recursive: true);
+    } catch (_) {
+      // Best-effort cleanup; the OS reclaims the cache directory anyway.
     }
   }
 
@@ -267,7 +283,15 @@ class SftpBrowserController extends ChangeNotifier {
           _safeNotify();
         },
       );
-      return await fileExport.save(archiveName, archive.finish());
+      final bytes = archive.finish();
+      final directory = await Directory.systemTemp.createTemp('conduit_sftp_');
+      final file = File('${directory.path}/$archiveName');
+      await file.writeAsBytes(bytes, flush: true);
+      try {
+        return await fileExport.saveFromPath(file.path, archiveName);
+      } finally {
+        await directory.delete(recursive: true);
+      }
     } finally {
       _transfer = null;
       _safeNotify();
@@ -305,6 +329,12 @@ class SftpBrowserController extends ChangeNotifier {
           },
         );
         archive.addFile(childArchivePath, bytes, child.modifiedAt);
+        if (archive.length > _maxDirectoryArchiveBytes) {
+          throw const AppFailure(
+            'This folder is too large to download as one archive. '
+            'Download its files individually.',
+          );
+        }
       }
     }
   }

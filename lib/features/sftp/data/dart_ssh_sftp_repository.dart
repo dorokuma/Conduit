@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit/core/app_failure.dart';
@@ -88,6 +89,43 @@ class DartSshSftpSession implements SftpSession {
     } finally {
       await file.close();
     }
+  }
+
+  @override
+  Future<String> downloadToFile(
+    String path, {
+    void Function(int bytesRead, int? total)? onProgress,
+  }) async {
+    final file = await sftp.open(path);
+    int? total;
+    try {
+      total = (await file.stat()).size;
+    } catch (_) {
+      total = null;
+    }
+    final directory = await Directory.systemTemp.createTemp('conduit_sftp_');
+    final segments = path.split('/').where((segment) => segment.isNotEmpty);
+    final name = segments.isEmpty ? 'download' : segments.last;
+    final destination = File('${directory.path}/$name');
+    final sink = destination.openWrite();
+    try {
+      await file.downloadTo(
+        sink,
+        onProgress: (read) => onProgress?.call(read, total),
+        closeDestination: true,
+      );
+    } catch (error) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      try {
+        await directory.delete(recursive: true);
+      } catch (_) {}
+      rethrow;
+    } finally {
+      await file.close();
+    }
+    return destination.path;
   }
 
   @override

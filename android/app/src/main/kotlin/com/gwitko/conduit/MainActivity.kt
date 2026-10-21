@@ -1,6 +1,7 @@
 package com.gwitko.conduit
 
 import android.Manifest
+import android.app.Activity
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.app.Notification
@@ -31,6 +32,7 @@ import java.util.Locale
 
 class MainActivity : FlutterFragmentActivity() {
     private lateinit var fidoUsbCtapTransport: FidoUsbCtapTransport
+    private var pendingFileSave: PendingFileSave? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +119,15 @@ class MainActivity : FlutterFragmentActivity() {
             FIDO_USB_CHANNEL,
         ).setMethodCallHandler { call, result ->
             fidoUsbCtapTransport.handle(call, result)
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            FILE_SAVE_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "saveFromPath" -> startFileSave(call, result)
+                else -> result.notImplemented()
+            }
         }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -277,6 +288,70 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
+    private fun startFileSave(
+        call: io.flutter.plugin.common.MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val sourcePath = call.argument<String>("sourcePath")
+        val fileName = call.argument<String>("fileName")
+        if (sourcePath.isNullOrEmpty() || fileName.isNullOrEmpty()) {
+            result.error("bad_arguments", "sourcePath and fileName are required.", null)
+            return
+        }
+        if (!File(sourcePath).exists()) {
+            result.error("source_missing", "The downloaded file is gone.", null)
+            return
+        }
+        pendingFileSave?.result?.error(
+            "busy",
+            "Another save is already in progress.",
+            null,
+        )
+        pendingFileSave = PendingFileSave(sourcePath, result)
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_TITLE, fileName)
+        }
+        startActivityForResult(intent, FILE_SAVE_REQUEST_CODE)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != FILE_SAVE_REQUEST_CODE) {
+            return
+        }
+        val pending = pendingFileSave ?: return
+        pendingFileSave = null
+        val uri = data?.data
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            pending.result.success(null)
+            return
+        }
+        Thread {
+            try {
+                val source = File(pending.sourcePath)
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    source.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw IllegalStateException("Could not open the selected file.")
+                runOnUiThread { pending.result.success(uri.toString()) }
+            } catch (error: Throwable) {
+                runOnUiThread {
+                    pending.result.error(
+                        "save_failed",
+                        error.message ?: "Could not save the file.",
+                        null,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private data class PendingFileSave(
+        val sourcePath: String,
+        val result: MethodChannel.Result,
+    )
+
     override fun onDestroy() {
         fidoUsbCtapTransport.close()
         super.onDestroy()
@@ -286,9 +361,11 @@ class MainActivity : FlutterFragmentActivity() {
         const val BACKGROUND_KEEPALIVE_CHANNEL = "conduit/background_keepalive"
         const val EXIT_INFO_CHANNEL = "conduit/exit_info"
         const val FIDO_USB_CHANNEL = "conduit/fido_usb"
+        const val FILE_SAVE_CHANNEL = "conduit/file_save"
         const val LOCAL_SHELL_CHANNEL = "conduit/local_shell"
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 2001
         private const val SHARED_STORAGE_PERMISSION_REQUEST_CODE = 2002
+        private const val FILE_SAVE_REQUEST_CODE = 2003
     }
 }
 
