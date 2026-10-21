@@ -11,7 +11,12 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
-        maven { url = uri("file:///root/android-maven-seed") }
+        // Optional local mirror for offline dev machines; ignored on CI.
+        val seed = file("/root/android-maven-seed")
+        if (seed.isDirectory) {
+            maven { url = uri(seed) }
+        }
+        google()
         mavenCentral()
         gradlePluginPortal()
     }
