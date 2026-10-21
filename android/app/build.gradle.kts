@@ -13,10 +13,19 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use(keystoreProperties::load)
 }
 
+val ndkRevisionFromEnv: String? =
+    System.getenv("ANDROID_NDK_HOME")
+        ?.let { File(it, "source.properties") }
+        ?.takeIf { it.isFile }
+        ?.let { file ->
+            Properties().apply { file.inputStream().use { load(it) } }
+                .getProperty("Pkg.Revision")
+        }
+
 android {
     namespace = "com.gwitko.conduit"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "28.2.13676358"
+    ndkVersion = ndkRevisionFromEnv ?: "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

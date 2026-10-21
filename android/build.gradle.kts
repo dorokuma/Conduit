@@ -1,3 +1,4 @@
+import com.android.build.gradle.AppExtension
 import com.android.build.gradle.LibraryExtension
 
 allprojects {
@@ -17,6 +18,37 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+
+// CI provisions a single NDK (the local-shell toolchain) and exposes it through
+// ANDROID_NDK_HOME. Read its revision and pin every Android module to it so
+// plugin defaults (27.0.12077973) and the app's pinned version do not require
+// extra SDK downloads.
+val ndkVersionFromEnv: String? =
+    System.getenv("ANDROID_NDK_HOME")
+        ?.let { java.io.File(it, "source.properties") }
+        ?.takeIf { it.isFile }
+        ?.let { file ->
+            java.util.Properties()
+                .apply { file.inputStream().use { load(it) } }
+                .getProperty("Pkg.Revision")
+        }
+
+subprojects {
+    val version = ndkVersionFromEnv
+    if (!version.isNullOrEmpty()) {
+        plugins.withId("com.android.application") {
+            extensions.configure<AppExtension>("android") {
+                ndkVersion = version
+            }
+        }
+        plugins.withId("com.android.library") {
+            extensions.configure<LibraryExtension>("android") {
+                ndkVersion = version
+            }
+        }
+    }
+}
+
 subprojects {
     project.evaluationDependsOn(":app")
 }
