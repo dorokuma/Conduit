@@ -163,7 +163,8 @@ jobs:
           yes | "${sdkmanager_bin}" --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null 2>&1 || true
           "${sdkmanager_bin}" --sdk_root="${ANDROID_SDK_ROOT}" \
             "platforms;android-34" "platforms;android-35" "platforms;android-36" \
-            "build-tools;34.0.0" "build-tools;35.0.0" "build-tools;36.0.0"
+            "build-tools;34.0.0" "build-tools;35.0.0" "build-tools;36.0.0" \
+            "cmake;3.22.1"
           ls "${ANDROID_SDK_ROOT}/platforms"
 
       - name: Configure Android signing
