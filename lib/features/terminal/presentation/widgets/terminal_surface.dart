@@ -272,12 +272,24 @@ class TerminalSurfaceState extends State<TerminalSurface> {
     final uri = widget.session.terminal.getHyperlinkAt(offset);
     if (uri == null || uri.isEmpty) return;
 
+    final sanitized = _sanitizeHyperlink(uri);
+    if (sanitized == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only http, https and mailto links can be opened'),
+          ),
+        );
+      }
+      return;
+    }
+
     final confirmed = await showHyperlinkPromptDialog(
       context: context,
-      uri: uri,
+      uri: sanitized,
     );
     if (confirmed == true && mounted) {
-      final parsedUri = Uri.tryParse(uri);
+      final parsedUri = Uri.tryParse(sanitized);
       var launched = false;
       if (parsedUri != null) {
         try {
@@ -297,6 +309,35 @@ class TerminalSurfaceState extends State<TerminalSurface> {
           const SnackBar(content: Text('Could not open link')),
         );
       }
+    }
+  }
+
+  /// Removes control and bidi characters from an OSC 8 URI and rejects any
+  /// scheme that could hand arbitrary intents or local files to the platform
+  /// launcher.
+  static String? _sanitizeHyperlink(String uri) {
+    final buffer = StringBuffer();
+    for (final code in uri.runes) {
+      final blocked =
+          code < 0x20 ||
+          code == 0x7F ||
+          (code >= 0x202A && code <= 0x202E) ||
+          (code >= 0x2066 && code <= 0x2069);
+      if (!blocked) {
+        buffer.writeCharCode(code);
+      }
+    }
+    final cleaned = buffer.toString().trim();
+    if (cleaned.isEmpty) return null;
+    final parsed = Uri.tryParse(cleaned);
+    if (parsed == null) return null;
+    switch (parsed.scheme.toLowerCase()) {
+      case 'http':
+      case 'https':
+      case 'mailto':
+        return cleaned;
+      default:
+        return null;
     }
   }
 
