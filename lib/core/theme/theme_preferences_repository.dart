@@ -17,6 +17,7 @@ class ThemePreferences {
     this.showLocalShell = true,
     this.terminalMouseInput = false,
     this.terminalEnterSequence = TerminalEnterSequence.cr,
+    this.verboseLogging = false,
   });
 
   final ThemeMode themeMode;
@@ -28,6 +29,7 @@ class ThemePreferences {
   final bool showLocalShell;
   final bool terminalMouseInput;
   final TerminalEnterSequence terminalEnterSequence;
+  final bool verboseLogging;
 }
 
 class ThemePreferencesRepository {
@@ -44,8 +46,9 @@ class ThemePreferencesRepository {
       'conduit.terminal_keyboard_seen_actions.v1';
   static const _terminalSnippetsKey = 'conduit.terminal_snippets.v1';
   static const _showLocalShellKey = 'conduit.show_local_shell.v1';
-  static const _terminalMouseInputKey = 'conduit.terminal_mouse_input.v1';
   static const _terminalEnterSequenceKey = 'conduit.terminal_enter_sequence.v1';
+  static const _terminalMouseInputKey = 'conduit.terminal_mouse_input.v1';
+  static const _verboseLoggingKey = 'conduit.verbose_logging.v1';
 
   final FlutterSecureStorage _storage;
 
@@ -71,6 +74,7 @@ class ThemePreferencesRepository {
     final rawTerminalEnterSequence = await _storage.read(
       key: _terminalEnterSequenceKey,
     );
+    final rawVerboseLogging = await _storage.read(key: _verboseLoggingKey);
     final terminalFontSize = double.tryParse(rawTerminalFontSize ?? '');
     final terminalKeyboardRows = _appendUnseenBuiltIns(
       _parseTerminalKeyboardRows(
@@ -104,6 +108,7 @@ class ThemePreferencesRepository {
         (sequence) => sequence.name == rawTerminalEnterSequence,
         orElse: () => TerminalEnterSequence.cr,
       ),
+      verboseLogging: rawVerboseLogging == 'true',
     );
   }
 
@@ -147,12 +152,16 @@ class ThemePreferencesRepository {
       value: preferences.showLocalShell.toString(),
     );
     await _storage.write(
+      key: _terminalEnterSequenceKey,
+      value: preferences.terminalEnterSequence.name,
+    );
+    await _storage.write(
       key: _terminalMouseInputKey,
       value: preferences.terminalMouseInput.toString(),
     );
     await _storage.write(
-      key: _terminalEnterSequenceKey,
-      value: preferences.terminalEnterSequence.name,
+      key: _verboseLoggingKey,
+      value: preferences.verboseLogging.toString(),
     );
   }
 

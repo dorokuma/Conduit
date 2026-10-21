@@ -79,6 +79,7 @@ enum TerminalKeyboardAction {
   herdrMenu,
   snippets,
   compose,
+  toggleKeyboard,
 }
 
 enum TerminalKeyboardItemKind { builtIn, customText, customControl }
@@ -227,6 +228,9 @@ const preTrackingTerminalKeyboardActionNames = <String>{
   'herdrScrollback',
   'herdrMenu',
   'compose',
+  // v1.4.30: added in the same release as the migration path below, so
+  // pre-tracking snapshots don't get it force-appended on next load.
+  'toggleKeyboard',
 };
 
 const herdrTerminalKeyboardActions = [
@@ -263,6 +267,11 @@ const defaultTerminalKeyboardItems = [
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.herdrMenu),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.snippets),
   TerminalKeyboardItem.builtIn(TerminalKeyboardAction.fullscreen),
+  // v1.4.30: built-in toolbar key to show/hide the on-screen keyboard.
+  // Required for herdr sessions where taps no longer auto-pop the IME
+  // (keepKeyboardHiddenOnTap), so the user has an explicit way to call
+  // the IME up when they want to type.
+  TerminalKeyboardItem.builtIn(TerminalKeyboardAction.toggleKeyboard),
 ];
 
 const herdrTerminalKeyboardItems = [
@@ -383,5 +392,6 @@ extension TerminalKeyboardActionDetails on TerminalKeyboardAction {
     TerminalKeyboardAction.herdrMenu => 'Herdr+',
     TerminalKeyboardAction.snippets => 'Snip',
     TerminalKeyboardAction.compose => 'Compose',
+    TerminalKeyboardAction.toggleKeyboard => 'Keys',
   };
 }

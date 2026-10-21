@@ -2,22 +2,88 @@ name: Release
 
 on:
   push:
-    branches:
-      - master
-  workflow_dispatch:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  preflight:
+    name: Validate tag matches pubspec
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      version_code: ${{ steps.meta.outputs.version_code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require tag to equal pubspec versionName
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
+          app_version="${pubspec_version%%+*}"
+          version_code="${pubspec_version##*+}"
+          if [[ -z "${app_version}" || -z "${version_code}" || "${app_version}" == "${version_code}" ]]; then
+            echo "::error::pubspec.yaml version must use Flutter versionName+versionCode format (got: '${pubspec_version}')."
+            exit 1
+          fi
+          tag="${GITHUB_REF_NAME}"
+          expected="v${app_version}"
+          if [[ "${tag}" != "${expected}" ]]; then
+            echo "::error::Tag '${tag}' must equal pubspec versionName '${expected}'. Bump pubspec.yaml, then push that tag. No tag override is accepted."
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${app_version}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${version_code}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check release assets before building
+        if: ${{ !env.ACT }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          target_repo="${GITHUB_REPOSITORY}"
+          assets=(
+            app-armeabi-v7a-release.apk
+            app-arm64-v8a-release.apk
+            app-x86_64-release.apk
+            app-armeabi-v7a-full-release.apk
+            app-arm64-v8a-full-release.apk
+            app-x86_64-full-release.apk
+          )
+          if ! gh release view "${TAG}" -R "${target_repo}" >/dev/null 2>&1; then
+            echo "Release ${TAG} does not exist yet. This workflow will create it."
+            exit 0
+          fi
+          echo "Release ${TAG} exists. Existing assets will be replaced with --clobber after a successful build."
+          existing_assets="$(gh release view "${TAG}" -R "${target_repo}" --json assets --jq '.assets[].name')"
+          for apk in "${assets[@]}"; do
+            if printf '%s\n' "${existing_assets}" | grep -Fxq "${apk}"; then
+              echo "Asset '${apk}' is already attached and will be replaced."
+            fi
+          done
+
   release:
     name: Test and release
+    needs: preflight
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Set up Flutter
@@ -93,6 +159,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
+          set -euo pipefail
           if [[ -z "${ANDROID_KEYSTORE_BASE64}" ]]; then
             if [[ -n "${ACT:-}" ]]; then
               echo "ANDROID_KEYSTORE_BASE64 is not set; local act run will build unsigned APKs."
@@ -125,43 +192,90 @@ jobs:
       - name: Build Android APKs
         run: flutter build apk --release --flavor full --split-per-abi
 
-      - name: Build release metadata
-        id: metadata
+      - name: Locate built APKs
+        id: apks
         shell: bash
+        env:
+          APP_VERSION: ${{ needs.preflight.outputs.version }}
         run: |
-          pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
-          app_version="${pubspec_version%%+*}"
-          version_code="${pubspec_version##*+}"
-          if [[ -z "${app_version}" || -z "${version_code}" || "${app_version}" == "${version_code}" ]]; then
-            echo "::error::pubspec.yaml version must use Flutter's versionName+versionCode format."
-            exit 1
+          set -euo pipefail
+          apk_dir="build/app/outputs/flutter-apk"
+          abis=(armeabi-v7a arm64-v8a x86_64)
+          files=()
+          for abi in "${abis[@]}"; do
+            legacy="${apk_dir}/app-${abi}-release.apk"
+            flavored="${apk_dir}/app-${abi}-full-release.apk"
+            if [[ -f "${legacy}" ]]; then
+              files+=("${legacy}")
+            elif [[ -f "${flavored}" ]]; then
+              files+=("${flavored}")
+            else
+              echo "::error::Missing APK for ${abi}. Looked for $(basename "${legacy}") and $(basename "${flavored}")."
+              if [[ -d "${apk_dir}" ]]; then
+                find "${apk_dir}" -type f -name '*.apk' -print
+              fi
+              exit 1
+            fi
+          done
+          # Portable arm64 artifact: same binary as the full-flavor APK, but
+          # with the stable conduit-<version>-arm64-release.apk name. Building
+          # it here reuses the jniLibs produced above instead of rebuilding in
+          # a second workflow.
+          portable_source=""
+          for candidate in "${apk_dir}/app-arm64-v8a-full-release.apk" "${apk_dir}/app-arm64-v8a-release.apk"; do
+            if [[ -f "${candidate}" ]]; then
+              portable_source="${candidate}"
+              break
+            fi
+          done
+          if [[ -n "${portable_source}" && -n "${APP_VERSION:-}" ]]; then
+            portable="${apk_dir}/conduit-${APP_VERSION}-arm64-release.apk"
+            cp "${portable_source}" "${portable}"
+            files+=("${portable}")
           fi
-          tag="v${app_version}"
           {
-            echo "tag=${tag}"
-            echo "name=Release ${tag}"
-            echo "version=${app_version}"
-            echo "version_code=${version_code}"
+            echo "files<<EOF"
+            printf '%s\n' "${files[@]}"
+            echo "EOF"
           } >> "${GITHUB_OUTPUT}"
+          printf '%s\n' "${files[@]}"
 
       - name: Show local release metadata
         if: ${{ env.ACT }}
         run: |
-          echo "Local act run; skipping GitHub tag and release creation."
-          echo "Tag would be: ${{ steps.metadata.outputs.tag }}"
+          echo "Local act run; skipping GitHub release creation."
+          echo "Tag would be: ${{ needs.preflight.outputs.tag }}"
 
-      - name: Create GitHub release
+      - name: Publish GitHub release
         if: ${{ !env.ACT }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.metadata.outputs.tag }}
-          name: ${{ steps.metadata.outputs.name }}
-          target_commitish: ${{ github.sha }}
-          files: |
-            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            build/app/outputs/flutter-apk/app-x86_64-release.apk
-          generate_release_notes: true
-          make_latest: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          TARGET: ${{ github.sha }}
+          APK_FILES: ${{ steps.apks.outputs.files }}
+        run: |
+          set -euo pipefail
+          target_repo="${GITHUB_REPOSITORY}"
+          mapfile -t files <<< "${APK_FILES}"
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "::error::No APK files to upload."
+            exit 1
+          fi
+          for apk in "${files[@]}"; do
+            if [[ -z "${apk}" || ! -f "${apk}" ]]; then
+              echo "::error::APK path is missing: '${apk}'"
+              exit 1
+            fi
+          done
+          if gh release view "${TAG}" -R "${target_repo}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists. Replacing attached APKs."
+          else
+            gh release create "${TAG}" \
+              --repo "${target_repo}" \
+              --target "${TARGET}" \
+              --title "Release ${TAG}" \
+              --generate-notes \
+              --latest
+          fi
+          gh release upload "${TAG}" "${files[@]}" --clobber -R "${target_repo}"

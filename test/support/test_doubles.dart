@@ -235,6 +235,7 @@ class TrackableTerminalSession implements SshTerminalSession {
   final int? completeAfterSends;
   final Completer<void> _done = Completer<void>();
   final List<List<int>> sent = <List<int>>[];
+  final List<List<int>> resizes = <List<int>>[];
   int closeCount = 0;
 
   @override
@@ -255,7 +256,9 @@ class TrackableTerminalSession implements SshTerminalSession {
   }
 
   @override
-  void resize(int columns, int rows, int pixelWidth, int pixelHeight) {}
+  void resize(int columns, int rows, int pixelWidth, int pixelHeight) {
+    resizes.add([columns, rows, pixelWidth, pixelHeight]);
+  }
 
   @override
   Future<void> send(List<int> data) async {
@@ -279,6 +282,27 @@ class ImmediateTerminalRepository implements SshTerminalRepository {
     required int columns,
     required int rows,
   }) async {
+    return _session;
+  }
+}
+
+class DelayedTerminalRepository implements SshTerminalRepository {
+  DelayedTerminalRepository(this._session, {required this.delay});
+
+  final SshTerminalSession _session;
+  final Duration delay;
+  int? connectColumns;
+  int? connectRows;
+
+  @override
+  Future<SshTerminalSession> connect(
+    SavedHost host, {
+    required int columns,
+    required int rows,
+  }) async {
+    connectColumns = columns;
+    connectRows = rows;
+    await Future<void>.delayed(delay);
     return _session;
   }
 }

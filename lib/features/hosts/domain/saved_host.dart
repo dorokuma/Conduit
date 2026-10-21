@@ -148,6 +148,7 @@ class SavedHost {
     this.startHerdrOnConnect = false,
     this.herdrPrefixKey = defaultHerdrPrefixKey,
     this.herdrSessionName = defaultHerdrSessionName,
+    this.herdrStartDirectory = '',
     this.snippets = const [],
     this.connectSnippetId = '',
     this.lastConnectedAt,
@@ -187,6 +188,7 @@ class SavedHost {
   final bool startHerdrOnConnect;
   final HerdrPrefixKey herdrPrefixKey;
   final String herdrSessionName;
+  final String herdrStartDirectory;
   final List<TerminalSnippet> snippets;
   final String connectSnippetId;
   final DateTime? lastConnectedAt;
@@ -259,6 +261,7 @@ class SavedHost {
     bool? startHerdrOnConnect,
     HerdrPrefixKey? herdrPrefixKey,
     String? herdrSessionName,
+    String? herdrStartDirectory,
     List<TerminalSnippet>? snippets,
     String? connectSnippetId,
     DateTime? lastConnectedAt,
@@ -289,6 +292,7 @@ class SavedHost {
       startHerdrOnConnect: startHerdrOnConnect ?? this.startHerdrOnConnect,
       herdrPrefixKey: herdrPrefixKey ?? this.herdrPrefixKey,
       herdrSessionName: herdrSessionName ?? this.herdrSessionName,
+      herdrStartDirectory: herdrStartDirectory ?? this.herdrStartDirectory,
       snippets: snippets ?? this.snippets,
       connectSnippetId: connectSnippetId ?? this.connectSnippetId,
       lastConnectedAt: clearLastConnectedAt
@@ -328,6 +332,7 @@ class SavedHost {
       'startHerdrOnConnect': startHerdrOnConnect,
       'herdrPrefixKey': herdrPrefixKey.name,
       'herdrSessionName': herdrSessionName,
+      'herdrStartDirectory': herdrStartDirectory,
       'snippets': [for (final snippet in snippets) snippet.toJson()],
       'connectSnippetId': connectSnippetId,
       'lastConnectedAt': lastConnectedAt?.toIso8601String(),
@@ -389,6 +394,11 @@ class SavedHost {
                       : json['tmuxSessionName']) as String)
               .trim()
           : defaultHerdrSessionName,
+      herdrStartDirectory: ((json.containsKey('herdrStartDirectory')
+                      ? json['herdrStartDirectory']
+                      : json['tmuxStartDirectory']) as String?)
+                  ?.trim() ??
+              '',
       snippets: (json['snippets'] as List? ?? const [])
           .map(TerminalSnippet.fromJson)
           .whereType<TerminalSnippet>()

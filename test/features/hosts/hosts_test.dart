@@ -159,6 +159,7 @@ void main() {
         startHerdrOnConnect: true,
         herdrPrefixKey: HerdrPrefixKey.controlA,
         herdrSessionName: 'work',
+        herdrStartDirectory: '~/projects',
         snippets: const [
           TerminalSnippet(
             id: 'snippet:deploy',
@@ -194,6 +195,7 @@ void main() {
       expect(decoded.startHerdrOnConnect, original.startHerdrOnConnect);
       expect(decoded.herdrPrefixKey, original.herdrPrefixKey);
       expect(decoded.herdrSessionName, original.herdrSessionName);
+      expect(decoded.herdrStartDirectory, original.herdrStartDirectory);
       expect(decoded.snippets, original.snippets);
       expect(decoded.connectSnippetId, original.connectSnippetId);
       expect(decoded.lastConnectedAt, original.lastConnectedAt);
@@ -228,6 +230,7 @@ void main() {
       expect(decoded.startHerdrOnConnect, isFalse);
       expect(decoded.herdrPrefixKey, HerdrPrefixKey.controlB);
       expect(decoded.herdrSessionName, defaultHerdrSessionName);
+      expect(decoded.herdrStartDirectory, isEmpty);
       expect(decoded.externalAuthOfferKey, isTrue);
     });
 
@@ -284,6 +287,10 @@ void main() {
       expect(bothPresent.startHerdrOnConnect, isFalse);
       expect(bothPresent.herdrPrefixKey, HerdrPrefixKey.controlB);
       expect(bothPresent.herdrSessionName, 'new-session');
+      });
+
+      expect(decoded.startHerdrOnConnect, isTrue);
+      expect(decoded.herdrSessionName, defaultHerdrSessionName);
     });
 
     test('preserves hardware key auth method', () {

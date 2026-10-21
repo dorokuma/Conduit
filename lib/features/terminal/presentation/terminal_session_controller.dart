@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit/core/app_failure.dart';
+import 'package:conduit/core/logging/app_logger.dart';
 import 'package:conduit/core/theme/terminal_appearance.dart';
 import 'package:conduit/features/hosts/domain/saved_host.dart';
 import 'package:conduit/features/terminal/domain/network_connectivity.dart';
@@ -16,6 +17,8 @@ import 'package:conduit/features/terminal/presentation/terminal_keyboard_control
 import 'package:conduit_vt/conduit_vt.dart';
 import 'package:flutter/foundation.dart';
 
+// [PRIVACY RED LINE]: Strictly prohibit logging terminal stream data,
+// user keystrokes, passwords, private keys, or command contents.
 enum TerminalConnectionStatus {
   idle,
   connecting,
@@ -32,7 +35,9 @@ class TerminalSessionController extends ChangeNotifier {
     bool predictiveEchoEnabled = false,
     TerminalEnterSequence enterSequence = TerminalEnterSequence.cr,
   }) : keyboard = TerminalKeyboardController(defaultInputHandler),
-       terminal = Terminal(maxLines: 10000) {
+       terminal = Terminal(
+         maxLines: 10000,
+       ) {
     _predictiveEchoEnabled = predictiveEchoEnabled;
     _enterSequence = enterSequence;
     _configureTerminal();
@@ -60,6 +65,7 @@ class TerminalSessionController extends ChangeNotifier {
   Timer? _resizeTimer;
   int _pendingColumns = 0;
   int _pendingRows = 0;
+  VoidCallback? _resizeCommitter;
   bool _disconnecting = false;
   bool _disposed = false;
   bool _predictiveEchoEnabled = false;
@@ -138,6 +144,11 @@ class TerminalSessionController extends ChangeNotifier {
     _outputFilter.reset();
     _predictiveEcho.reset();
     _status = TerminalConnectionStatus.connecting;
+    AppLogger.ssh('Connect terminal session', metadata: {
+      'host': host.name,
+      'port': host.port,
+      'is_local': host.isLocal,
+    });
     terminal.write(
       host.isLocal
           ? 'Starting ${host.name}...\r\n'
@@ -157,6 +168,10 @@ class TerminalSessionController extends ChangeNotifier {
       securityKeySubscription = SecurityKeyInteraction.instance.messages.listen(
         (message) => terminal.write('$message\r\n'),
       );
+      // Commit any deferred local resize so connect() and the follow-up
+      // session.resize see the real viewport, not the 80x24 default.
+      // No-op when a committer has not been registered.
+      _resizeCommitter?.call();
       session = await repository.connect(
         host,
         columns: terminal.viewWidth,
@@ -230,6 +245,9 @@ class TerminalSessionController extends ChangeNotifier {
       }
 
       _status = TerminalConnectionStatus.connected;
+      AppLogger.ssh('Terminal session connected', metadata: {
+        'host': host.name,
+      });
       notifyListeners();
       _startHerdrIfConfigured(session);
       _runConnectSnippetIfConfigured(session);
@@ -256,6 +274,9 @@ class TerminalSessionController extends ChangeNotifier {
         _status == TerminalConnectionStatus.idle) {
       return;
     }
+    AppLogger.ssh('Disconnect terminal session', metadata: {
+      'host': host.name,
+    });
     _disconnecting = true;
     _connectionGeneration += 1;
 
@@ -404,15 +425,38 @@ class TerminalSessionController extends ChangeNotifier {
 
   void _configureTerminal() {
     terminal.inputHandler = keyboard;
-    terminal.onResize = (columns, rows, pixelWidth, pixelHeight) {
-      _pixelWidth = pixelWidth;
-      _pixelHeight = pixelHeight;
-      _pendingColumns = columns;
-      _pendingRows = rows;
-      _resizeTimer?.cancel();
-      _resizeTimer = Timer(const Duration(milliseconds: 250), _flushResize);
-    };
     terminal.onOutput = _sendTerminalOutput;
+  }
+
+  /// Stores the latest Flutter viewport size and (re)arms the 250ms debounce.
+  ///
+  /// Called from layout via [TerminalView.onViewportSizeChanged]. Must not
+  /// trigger setState or markNeedsLayout.
+  void handleViewportResized(
+    int columns,
+    int rows,
+    int pixelWidth,
+    int pixelHeight,
+  ) {
+    if (_disposed) {
+      return;
+    }
+    _pendingColumns = columns;
+    _pendingRows = rows;
+    _pixelWidth = pixelWidth;
+    _pixelHeight = pixelHeight;
+    _resizeTimer?.cancel();
+    _resizeTimer = Timer(const Duration(milliseconds: 250), _flushResize);
+  }
+
+  void registerResizeCommitter(VoidCallback committer) {
+    _resizeCommitter = committer;
+  }
+
+  void unregisterResizeCommitter(VoidCallback committer) {
+    if (_resizeCommitter == committer) {
+      _resizeCommitter = null;
+    }
   }
 
   void _sendTerminalOutput(String data) {
@@ -534,6 +578,7 @@ class TerminalSessionController extends ChangeNotifier {
     if (_session == null || _status != TerminalConnectionStatus.connected) {
       return;
     }
+    _resizeCommitter?.call();
     _pendingColumns = terminal.viewWidth;
     _pendingRows = terminal.viewHeight;
     _resizeTimer?.cancel();
@@ -543,6 +588,12 @@ class TerminalSessionController extends ChangeNotifier {
   void _flushResize() {
     final session = _session;
     if (session == null) return;
+    _resizeCommitter?.call();
+    AppLogger.ssh('Terminal resize', metadata: {
+      'host': host.name,
+      'columns': _pendingColumns,
+      'rows': _pendingRows,
+    });
     if (kDebugMode) {
       debugPrint(
         '[term ${host.name}] -> server ${_pendingColumns}x$_pendingRows',
@@ -601,6 +652,7 @@ class TerminalSessionController extends ChangeNotifier {
     _predictiveEcho.reset();
     unawaited(_cancelSessionSubscriptions());
     unawaited(_closeSessionSafely(session));
+    AppLogger.w('TerminalSession', 'Stream error on ${host.name}: $error', error: error, stackTrace: stackTrace);
     terminal.write('\r\n$error\r\n');
     _status = TerminalConnectionStatus.failed;
     notifyListeners();
@@ -610,6 +662,7 @@ class TerminalSessionController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
+    AppLogger.w('TerminalSession', 'Terminal connection failed for ${host.name}: $message');
     _status = TerminalConnectionStatus.failed;
     terminal.write('\r\n$message\r\n');
     notifyListeners();

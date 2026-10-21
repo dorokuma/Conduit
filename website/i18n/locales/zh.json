@@ -67,6 +67,7 @@
         "eyebrow": "herdr",
         "title": "herdr, attached before you type",
         "body": "Flip one switch on a host and every connect attaches to your herdr session, or creates it, under the name you chose. Prefix, action, and scrollback keys live right in the key row, so Ctrl-B chords stop being finger yoga on glass.",
+        "body": "Flip one switch on a host and every connect attaches to your herdr session, or creates it, in the directory and under the name you chose. Prefix, action, and scrollback keys live right in the key row, so Ctrl-B chords stop being finger yoga on glass.",
         "points": [
           "Auto attach or create on connect",
           "Per-host session name",

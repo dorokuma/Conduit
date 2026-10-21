@@ -50,6 +50,7 @@ class _HostFormPageState extends State<HostFormPage> {
   final _herdrSessionNameController = TextEditingController(
     text: defaultHerdrSessionName,
   );
+  final _herdrStartDirectoryController = TextEditingController();
   final FocusNode _tagFocusNode = FocusNode();
   SshAuthMethod _authMethod = SshAuthMethod.password;
   bool _showPassword = false;
@@ -112,6 +113,7 @@ class _HostFormPageState extends State<HostFormPage> {
       _startHerdrOnConnect = host.startHerdrOnConnect;
       _herdrPrefixKey = host.herdrPrefixKey;
       _herdrSessionNameController.text = host.herdrSessionName;
+      _herdrStartDirectoryController.text = host.herdrStartDirectory;
       _snippets = List<TerminalSnippet>.from(host.snippets);
       _connectSnippetId = host.connectSnippetId;
     }
@@ -209,6 +211,7 @@ class _HostFormPageState extends State<HostFormPage> {
     _moshLocaleController.dispose();
     _moshPortsController.dispose();
     _herdrSessionNameController.dispose();
+    _herdrStartDirectoryController.dispose();
     super.dispose();
   }
 
@@ -302,6 +305,7 @@ class _HostFormPageState extends State<HostFormPage> {
               moshLocaleController: _moshLocaleController,
               moshPortsController: _moshPortsController,
               herdrSessionNameController: _herdrSessionNameController,
+              herdrStartDirectoryController: _herdrStartDirectoryController,
               useMosh: _useMosh,
               predictiveEchoEnabled: _predictiveEchoEnabled,
               startHerdrOnConnect: _startHerdrOnConnect,
@@ -728,6 +732,7 @@ class _HostFormPageState extends State<HostFormPage> {
       herdrSessionName: _herdrSessionNameController.text.trim().isEmpty
           ? defaultHerdrSessionName
           : _herdrSessionNameController.text.trim(),
+      herdrStartDirectory: _herdrStartDirectoryController.text.trim(),
       snippets: List<TerminalSnippet>.unmodifiable(_snippets),
       connectSnippetId:
           _snippets.any((snippet) => snippet.id == _connectSnippetId)

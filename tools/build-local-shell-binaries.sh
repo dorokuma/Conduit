@@ -71,6 +71,19 @@ fi
 
 git -C "$TERMUX_PACKAGES_DIR" fetch --tags --force origin "$TERMUX_PACKAGES_COMMIT" || true
 git -C "$TERMUX_PACKAGES_DIR" checkout -f "$TERMUX_PACKAGES_COMMIT"
+
+# busybox.net is intermittently unreachable from CI runners; use the
+# byte-identical buildroot.net mirror (SHA256 stays pinned by the recipe).
+sed -i 's#https://busybox.net/downloads/#https://sources.buildroot.net/busybox/#' \
+  "$TERMUX_PACKAGES_DIR/packages/busybox/build.sh"
+# mirrors.kernel.org is intermittently unreachable from CI runners; use the
+# byte-identical buildroot.net mirror (SHA256 stays pinned by the recipe).
+sed -i 's#https://mirrors.kernel.org/gnu/libiconv/#https://sources.buildroot.net/libiconv/#' \
+  "$TERMUX_PACKAGES_DIR/packages/libiconv/build.sh"
+# download.savannah.gnu.org is intermittently unreachable from CI runners; use
+# the byte-identical savannah download mirror (SHA256 stays pinned by recipe).
+sed -i 's#http://download.savannah.gnu.org/releases/#https://download-mirror.savannah.gnu.org/releases/#' \
+  "$TERMUX_PACKAGES_DIR/packages/attr/build.sh"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$TERMUX_PACKAGES_DIR" show -s --format=%ct "$TERMUX_PACKAGES_COMMIT")}"
 export TZ=UTC
 export LC_ALL=C

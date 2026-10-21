@@ -27,6 +27,8 @@ class TerminalKeyboardBar extends StatelessWidget {
     required this.onExitHerdrScrollMode,
     required this.herdrPrefixKey,
     required this.herdrScrollMode,
+    this.keyboardVisible = false,
+    this.onToggleKeyboard,
     super.key,
   });
 
@@ -44,6 +46,13 @@ class TerminalKeyboardBar extends StatelessWidget {
   final VoidCallback onExitHerdrScrollMode;
   final HerdrPrefixKey herdrPrefixKey;
   final bool herdrScrollMode;
+
+  /// Whether the on-screen keyboard is currently visible; flips the icon of
+  /// the [TerminalKeyboardAction.toggleKeyboard] key.
+  final bool keyboardVisible;
+
+  /// Callback for [TerminalKeyboardAction.toggleKeyboard].
+  final VoidCallback? onToggleKeyboard;
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +241,18 @@ class TerminalKeyboardBar extends StatelessWidget {
         onSelected: _triggerSnippetMenuItem,
         items: _snippetMenuItems(),
       ),
+      TerminalKeyboardAction.toggleKeyboard => _Key(
+        icon: keyboardVisible
+            ? Icons.keyboard_hide_rounded
+            : Icons.keyboard_rounded,
+        palette: palette,
+        brightness: brightness,
+        onPressed: onToggleKeyboard == null
+            ? null
+            : () {
+                onToggleKeyboard!();
+              },
+      ),
       _ => _Key(
         label: action.label,
         palette: palette,
@@ -286,6 +307,7 @@ class TerminalKeyboardBar extends StatelessWidget {
       case TerminalKeyboardAction.herdrMenu:
       case TerminalKeyboardAction.snippets:
       case TerminalKeyboardAction.compose:
+      case TerminalKeyboardAction.toggleKeyboard:
         break;
     }
   }

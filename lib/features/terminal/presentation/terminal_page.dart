@@ -16,6 +16,7 @@ import 'package:conduit/features/terminal/presentation/widgets/session_tabs.dart
 import 'package:conduit/features/terminal/presentation/widgets/terminal_header.dart';
 import 'package:conduit/features/terminal/presentation/widgets/terminal_surface.dart';
 import 'package:conduit_vt/conduit_vt.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -36,6 +37,11 @@ class TerminalPage extends StatefulWidget {
 
 class _TerminalPageState extends State<TerminalPage> {
   final _focusNode = FocusNode();
+  // Monotonically increasing generation counter for the soft-keyboard show
+  // path. Each show tap bumps it; a dismiss (or a newer show) bumps it again
+  // so an in-flight post-resize re-assert from an older show is invalidated
+  // and can't re-open the IME the user just dismissed.
+  int _keyboardShowGeneration = 0;
   TerminalSessionController? _focusedSession;
   bool _fullscreen = false;
   bool _herdrScrollMode = false;
@@ -46,6 +52,17 @@ class _TerminalPageState extends State<TerminalPage> {
   static const int _composeHistoryLimit = 20;
   final List<String> _composeHistory = <String>[];
   String _composeDraft = '';
+
+  // Per-session [GlobalKey<TerminalViewState>] for the toolbar keyboard
+  // button. The page needs to call show/hide on the *active* terminal's
+  // view state, but [TerminalView] is a child of [TerminalSurface] and
+  // lives inside an [IndexedStack] of surfaces. We allocate one key per
+  // session host id and pass it down so the surface forwards it to the
+  // underlying [TerminalView]. Keys are stable across rebuilds (the
+  // backing map is keyed by host id) so the active surface's view
+  // state is always addressable from the toolbar.
+  final Map<String, GlobalKey<TerminalViewState>> _terminalViewKeys =
+      <String, GlobalKey<TerminalViewState>>{};
 
   @override
   void initState() {
@@ -141,6 +158,19 @@ class _TerminalPageState extends State<TerminalPage> {
               final landscape =
                   MediaQuery.orientationOf(context) == Orientation.landscape;
               final gestureNavigation = usesAndroidGestureNavigation(context);
+              // Per-session [TerminalView] state for the active session.
+              // Lifted out of the [TerminalKeyboardBar] constructor so the
+              // [keyboardVisible] expression and [onToggleKeyboard] handler
+              // both observe the same live [TextInputConnection] state.
+              // Using [hasInputConnection] (instead of viewInsets) makes
+              // the toolbar icon flip synchronously with the platform
+              // connection — the viewInsets gradient is still > 0 during
+              // the IME dismiss animation, so an inset-based check
+              // mis-classifies the visible state for the entire close
+              // window.
+              final viewKey = _terminalViewKeys[activeSession.host.id];
+              final view = viewKey?.currentState;
+              final keyboardVisible = view?.hasInputConnection ?? false;
               return SafeArea(
                 top: !_fullscreen,
                 bottom: shouldApplyBottomSafeArea(context),
@@ -211,6 +241,12 @@ class _TerminalPageState extends State<TerminalPage> {
                                       setState(() => _herdrScrollMode = false);
                                       _focusNode.requestFocus();
                                     },
+                                    terminalViewKey: _terminalViewKeys.putIfAbsent(
+                                      session.host.id,
+                                      GlobalKey<TerminalViewState>.new,
+                                    ),
+                                    suppressKeyboardOnFocus:
+                                        session.host.startHerdrOnConnect,
                                   ),
                               ],
                             ),
@@ -313,6 +349,172 @@ class _TerminalPageState extends State<TerminalPage> {
                           _focusNode.requestFocus();
                         },
                       ),
+                    _composeMode
+                        ? _ComposeInputBar(
+                            palette: palette,
+                            brightness: brightness,
+                            history: _composeHistory,
+                            initialText: _composeDraft,
+                            onSend: (line) {
+                              // Send the line, then deliver Enter as a SEPARATE write a
+                              // short moment later. Some remote TUIs (e.g. Claude Code
+                              // and other Ink/readline apps) classify a single terminal
+                              // read that contains a long line ending in CR as a *paste*
+                              // and insert the trailing CR as a literal newline instead
+                              // of submitting — so a wrapping compose line silently fails
+                              // to send. Delivering Enter in its own read makes it an
+                              // isolated keypress that submits regardless of line length.
+                              activeSession.sendText(line);
+                              Future.delayed(
+                                const Duration(milliseconds: 120),
+                                () {
+                                  activeSession.sendKey(TerminalKey.enter);
+                                },
+                              );
+                              setState(() {
+                                // De-duplicate: drop any earlier identical entry so the
+                                // ring keeps distinct lines (re-sending a recalled line
+                                // can't churn duplicates that evict good older ones).
+                                _composeHistory.remove(line);
+                                _composeHistory.add(line);
+                                if (_composeHistory.length >
+                                    _composeHistoryLimit) {
+                                  _composeHistory.removeAt(0);
+                                }
+                                _composeDraft = '';
+                              });
+                            },
+                            onClose: (draft) {
+                              setState(() {
+                                _composeMode = false;
+                                _composeDraft = draft;
+                              });
+                              _focusNode.requestFocus();
+                            },
+                          )
+                        : TerminalKeyboardBar(
+                            controller: activeSession,
+                            focusNode: _focusNode,
+                            palette: palette,
+                            brightness: brightness,
+                            rows: widget.themeController.terminalKeyboardRows,
+                            globalSnippets:
+                                widget.themeController.terminalSnippets,
+                            fullscreen: _fullscreen,
+                            onToggleFullscreen: _toggleFullscreen,
+                            composeActive: _composeMode,
+                            onToggleCompose: () =>
+                                setState(() => _composeMode = !_composeMode),
+                            herdrPrefixKey: activeSession.host.herdrPrefixKey,
+                            herdrScrollMode: _herdrScrollMode,
+                            onEnterHerdrScrollMode: () {
+                              setState(() => _herdrScrollMode = true);
+                              _focusNode.requestFocus();
+                            },
+                            onExitHerdrScrollMode: () {
+                              setState(() => _herdrScrollMode = false);
+                              _focusNode.requestFocus();
+                            },
+                            // Soft-keyboard visibility: drive the icon off
+                            // the live [TextInputConnection] state on the
+                            // view, not off [MediaQuery.viewInsets]. The
+                            // viewInsets gradient is still > 0 during the
+                            // IME dismiss animation, so a viewInsets-based
+                            // check shows the wrong icon for the entire
+                            // close animation. [hasInputConnection] is the
+                            // actual platform connection, which closes
+                            // synchronously with [dismissSoftKeyboard].
+                            keyboardVisible: keyboardVisible,
+                            onToggleKeyboard: () {
+                              // Drive the soft keyboard through the active
+                              // [TerminalView] state rather than the focus
+                              // node: programmatic [FocusNode.requestFocus]
+                              // never produces a keyboard token, so the
+                              // focus listener inside the terminal would
+                              // silently no-op (the IME never opens).
+                              // [TerminalViewState.showSoftKeyboard] /
+                              // [dismissSoftKeyboard] open / close the
+                              // input connection directly and unfocus on
+                              // dismiss, which is the only reliable path
+                              // for a toolbar button. We deliberately use
+                              // [hasInputConnection] (not viewInsets) as
+                              // the toggle condition: while the IME
+                              // dismiss animation is in flight, viewInsets
+                              // is still > 0, so an inset-based check
+                              // would mis-classify the visible state and
+                              // route the second tap to showSoftKeyboard
+                              // instead of dismiss.
+                              if (view == null) return;
+                              if (view.hasInputConnection) {
+                                if (kDebugMode) {
+                                  debugPrint(
+                                    'TerminalPage.onToggleKeyboard: dismiss (hasInputConnection=${view.hasInputConnection}, hasFocus=${_focusNode.hasFocus}, viewInsets=${MediaQuery.viewInsetsOf(context).bottom})',
+                                  );
+                                }
+                                // Invalidate any pending show re-assert so a
+                                // quick dismiss isn't followed by a stale
+                                // re-show of the IME we just closed.
+                                _keyboardShowGeneration++;
+                                view.dismissSoftKeyboard();
+                                // Defend against the platform reopening
+                                // the IME: after a successful dismiss,
+                                // hand focus to a throwaway node so no
+                                // focusable widget in this subtree still
+                                // owns a focus that would re-trigger the
+                                // focus-listener path inside the terminal
+                                // (which would immediately call
+                                // requestKeyboard() and re-open the
+                                // connection we just closed).
+                                FocusScope.of(
+                                  context,
+                                ).requestFocus(FocusNode());
+                              } else {
+                                if (kDebugMode) {
+                                  debugPrint(
+                                    'TerminalPage.onToggleKeyboard: show (hasInputConnection=${view.hasInputConnection}, hasFocus=${_focusNode.hasFocus}, viewInsets=${MediaQuery.viewInsetsOf(context).bottom})',
+                                  );
+                                }
+                                // Capture a fresh show generation so the
+                                // retries below no-op if a newer show or a
+                                // dismiss has happened since.
+                                final gen = ++_keyboardShowGeneration;
+                                view.showSoftKeyboard();
+                                _focusNode.requestFocus();
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  if (mounted &&
+                                      gen == _keyboardShowGeneration) {
+                                    viewKey?.currentState?.showSoftKeyboard();
+                                  }
+                                });
+                                // The standard IME resize shrinks the body as
+                                // the IME appears. That window resize can
+                                // cancel the in-progress IME show on Android
+                                // (the IME is requested, then the resize
+                                // dismisses it), leaving the input connection
+                                // open but the keyboard invisible. Re-assert
+                                // the show after the resize animation settles
+                                // so the IME actually appears.
+                                // showSoftKeyboard is idempotent, so re-calling
+                                // it when the IME is already up is a no-op.
+                                Future.delayed(
+                                  const Duration(milliseconds: 400),
+                                  () {
+                                    if (!mounted ||
+                                        gen != _keyboardShowGeneration) {
+                                      return;
+                                    }
+                                    final state = viewKey?.currentState;
+                                    if (state == null) return;
+                                    _focusNode.requestFocus();
+                                    state.showSoftKeyboard();
+                                  },
+                                );
+                              }
+                              setState(() {});
+                            },
+                          ),
                   ],
                 ),
               );

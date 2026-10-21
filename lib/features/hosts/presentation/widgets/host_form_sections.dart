@@ -298,6 +298,7 @@ class HostAdvancedSection extends StatelessWidget {
     required this.moshLocaleController,
     required this.moshPortsController,
     required this.herdrSessionNameController,
+    required this.herdrStartDirectoryController,
     required this.useMosh,
     required this.predictiveEchoEnabled,
     required this.startHerdrOnConnect,
@@ -324,6 +325,7 @@ class HostAdvancedSection extends StatelessWidget {
   final TextEditingController moshLocaleController;
   final TextEditingController moshPortsController;
   final TextEditingController herdrSessionNameController;
+  final TextEditingController herdrStartDirectoryController;
   final bool useMosh;
   final bool predictiveEchoEnabled;
   final bool startHerdrOnConnect;
@@ -451,6 +453,21 @@ class HostAdvancedSection extends StatelessWidget {
               helperText: 'Conduit attaches to this session, or creates it.',
               helperMaxLines: 2,
               prefixIcon: Icon(Icons.view_stream_outlined),
+            ),
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.next,
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: herdrStartDirectoryController,
+            decoration: const InputDecoration(
+              labelText: 'Herdr start directory',
+              hintText: '~/projects',
+              helperText:
+                  'Configure via herdr config new_cwd or a connect snippet.',
+              helperMaxLines: 2,
+              prefixIcon: Icon(Icons.folder_outlined),
             ),
             autocorrect: false,
             enableSuggestions: false,

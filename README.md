@@ -26,6 +26,7 @@ rides out Wi-Fi drops and cellular handoffs instead of dying with them. Sessions
 live in tabs, with on-screen modifier, arrow, and function keys for the things a
 phone keyboard doesn't have. Per-host herdr integration can attach or create a
 session on connect, choose the session name, and expose herdr prefix, action,
+session on connect, choose the start directory, and expose herdr prefix, action,
 and scrollback controls from the key row.
 
 On Android arm64, Conduit can also run an optional local Arch Linux shell
@@ -50,6 +51,9 @@ Detailed development and contribution guidelines are maintained across:
 - [AGENTS.md](AGENTS.md): Agent collaboration rules, verified build/test commands, and repository constraints.
 - [.agents/notes/README.md](.agents/notes/README.md): Architecture decisions, design rationales, and exemption rules.
 - [.agents/notes/fork-delta.md](.agents/notes/fork-delta.md): Documented intentional divergences from upstream.
+- [AGENTS.md](AGENTS.md): Operating instructions, build/test commands, and core invariants for AI agents and developers.
+- [.agents/notes/README.md](.agents/notes/README.md): Guidelines and triggers for recording architectural decisions and troubleshooting notes.
+- [.agents/notes/fork-delta.md](.agents/notes/fork-delta.md): Inventory of intentional divergences and custom configurations relative to upstream Conduit.
 
 ## Features
 
@@ -57,6 +61,7 @@ Detailed development and contribution guidelines are maintained across:
   sorting by last connected, name, or date added, and tabbed workspaces.
 - Mosh sessions for roaming across Wi-Fi drops and network changes.
 - Per-host herdr integration with auto attach/create, session name, prefix
+- Per-host herdr integration with auto attach/create, start directories, prefix
   key selection, action shortcuts, and scrollback mode.
 - SFTP browser for navigating, downloading, uploading, renaming, and deleting files.
 - OpenSSH private key, password, hardware security key, and external
