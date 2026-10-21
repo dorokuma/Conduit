@@ -37,10 +37,17 @@ subprojects {
     afterEvaluate {
         val ndkHome = System.getenv("ANDROID_NDK_HOME")
         if (!ndkHome.isNullOrEmpty() && java.io.File(ndkHome).isDirectory) {
-            // ndkPath bypasses the SDK-managed ndk/<version> lookup, so the
-            // toolchain NDK that CI provisions is used as-is.
-            extensions.findByType(AppExtension::class.java)?.ndkPath = ndkHome
-            extensions.findByType(LibraryExtension::class.java)?.ndkPath = ndkHome
+            // ndkPath bypasses the SDK-managed ndk/<version> lookup, but AGP
+            // still checks ndkVersion against it, so keep both in sync.
+            val version = ndkVersionFromEnv
+            extensions.findByType(AppExtension::class.java)?.apply {
+                ndkPath = ndkHome
+                if (!version.isNullOrEmpty()) ndkVersion = version
+            }
+            extensions.findByType(LibraryExtension::class.java)?.apply {
+                ndkPath = ndkHome
+                if (!version.isNullOrEmpty()) ndkVersion = version
+            }
         }
     }
 }
