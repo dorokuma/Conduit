@@ -37,7 +37,11 @@ supersedes: ""
 
 ### 6. 发版同步与本地 Shell 二进制分发策略（已确认）
 - **发版分支与同步策略（已确认）**：采用单向流——上游 `gwitko/Conduit` → `Conduit`（集成/实验仓，`origin` 即上游，严禁 push）→ 选择性 cherry-pick 到 `Conduit-feat` 的 `feat/alt-buffer-scroll-simulate`（唯一发版仓）；禁止反向整支 merge；同步触发条件为上游每次 release 后一次 + 本仓每轮定制收敛后一次；`Conduit` 不打发版 tag。
+- **双仓当前演进策略（已确认）**：`Conduit-feat` 为唯一主力发版演进仓（当前版本 `1.4.45+70`），已超前演进日志、OSC8、键盘等特性；`Conduit` 维持 `1.4.31+56` 集成缓冲基线，仅承担上游同步缓冲与定制验证，禁止将 `Conduit-feat` 反向整支 merge 回 `Conduit`。
 - **本地 shell（termux）二进制分发打包策略（已确认）**：termux 本地 shell 二进制的构建 pin 为 `termux-packages` commit `ac296452b8ebec390cad3bce9060577c96099b10`（来源 `tools/build-local-shell-binaries.sh:4` 的 `TERMUX_PACKAGES_COMMIT` 默认值，包校验和快照在 `third_party/source-offer/termux-package-checksums.md` 与 `third_party/source-offer/termux-recipes/`），每次 `Conduit-feat` release 前构建一次并把产物作为该 release 的 assets 发布，在本笔记登记该 `termux-packages` pinned commit；`pubspec.yaml` 所引用的 `conduit_vt` commit `63d870d8f70131ea1edddc0693524a65d0016885` 只是 Dart 终端库依赖 pin（见第 1 节），与 termux 构建无关联，两者须分别登记、不得混写。
+
+### 7. README 上游链接保留
+- **决策**：`README.md` 保留上游链接不改，以减少后续同步上游文档时的合并冲突。
 
 ## 被放弃的方案（必填）
 - **直接 rebase/merge 上游 master 覆盖定制**：放弃，会破坏 `herdr` 终端集成、主题预设及离线构建能力。
@@ -51,7 +55,3 @@ supersedes: ""
 ## 来源
 - Git commit 历史：`7f3037b` (feat: migrate tmux to herdr), `c9da878` (build: offline maven seed)
 - 仓库配置文件与构建快照：`pubspec.yaml`, `android/build.gradle.kts`, `README.md`, `tools/build-local-shell-binaries.sh`, `third_party/source-offer/termux-package-checksums.md`, `third_party/source-offer/termux-recipes/`
-
-## 审查观察项（非契约破坏，供后续参考）
-- **README 上游链接与本分支 fork 依赖源差异**：`README.md` 顶部徽章及正文中 `[conduit_vt](https://github.com/gwitko/conduit_vt)`、仓库链接仍指向 `gwitko` 上游仓库；而本分支（`feat/alt-buffer-scroll-simulate`）`pubspec.yaml` 实际构建依赖源指向 fork 仓 `https://github.com/dorokuma/conduit_vt.git`（commit `63d870d8f70131ea1edddc0693524a65d0016885`）。保持 `README.md` 原文不改，以减少后续同步上游文档时的合并冲突。
-- **笔记脚本与模板跨分支补齐**：`Conduit` 仓 `feat/alt-buffer-scroll-simulate` 分支分叉早于 `master` 引入笔记体系的提交，已从 `master` 检出补齐 `scripts/notes-index.sh`、`.agents/notes/README.md` 与 `.agents/notes/_template.md`。
