@@ -35,6 +35,7 @@ supersedes: ""
 - **当前版本**：`1.4.45+70`（`pubspec.yaml` 遵从 `versionName+versionCode` 规范）。
 - **主工作分支**：`feat/alt-buffer-scroll-simulate`。
 - **发版 Tag 规则（已确认）**：以 `vX.Y.Z` 命名，其中 `X.Y` 跟随所同步的上游版本系列，`Z` 由本地发版独立递增、不复用不回填，`versionCode` 单调递增（现 `1.4.45+70`，下一版 `1.4.45+71`），tag 只打在 `Conduit-feat` 发版分支（`feat/alt-buffer-scroll-simulate`）且不依赖上游 tag 是否存在。
+- **双仓演进策略（已确认）**：`Conduit-feat` 为唯一主力发版演进仓（当前 `1.4.45+70`），已超前演进日志、OSC8、键盘等特性；`Conduit` 维持 `1.4.31+56` 集成缓冲基线，仅承担上游同步缓冲与定制验证，禁止将 `Conduit-feat` 反向整支 merge 回 `Conduit`。
 
 #### CI 发版工作流收敛（纯 `v*` Tag 驱动，详见 [2026-10-18-release-workflow-tag-driven.md](2026-10-18-release-workflow-tag-driven.md)）
 - **现有工作流清单与修订说明（2026-10-21）**：当前 `.github/workflows/` 仅保留 `release.yml`、`ci-test.yml`、`website.yml` 三个工作流文件；2026-10-21 合并提交 `e8477f6` 合入 `7c0e648`（`ci(release): publish portable arm64 APK from release job`），`release-apk.yml` 已于 `7c0e648` 删除，全部 Release 构建与发布收敛至单一的 `.github/workflows/release.yml`。
@@ -42,6 +43,9 @@ supersedes: ""
 - **产物与上传**：由 `release.yml` 的 `release` job（`Test and release`）在统一完成 `jniLibs` 原生二进制编译与 `flutter build apk --release --flavor full --split-per-abi` 后，收集 `armeabi-v7a`、`arm64-v8a`、`x86_64` 三架构 APK（`app-<abi>-release.apk` 或 `app-<abi>-full-release.apk`），并从含 `jniLibs` 的 full-flavor arm64 产物直接复制生成 portable arm64 产物 `conduit-<version>-arm64-release.apk`；最终通过 `gh release upload "${TAG}" "${files[@]}" --clobber -R "${target_repo}"` 一并上传，`--clobber` 确保同名产物存在时覆盖替换。
 - **单一创建者与并发锁**：仅由 `release.yml` 的 `release` job（显式检出 `ref: ${{ github.ref }}`、`fetch-depth: 0`）唯一创建 GitHub Release（当目标 Release 不存在时执行 `gh release create`，`--target` 绑定 `github.sha` 即 tag 指向的 commit）；工作流级并发锁配置为 `group: release-${{ github.ref }}`（`cancel-in-progress: false`）。
 - **发版与补发流程**：发版须先在 `pubspec.yaml` 递增 `versionName+versionCode` 并提交，再在发版分支（`feat/alt-buffer-scroll-simulate`）打 `vX.Y.Z` tag 推送触发；如需补发，使用 `gh run rerun <run-id>`（对既有该 tag 的 run 重跑，保持同 ref 同并发组；详见 [2026-10-18-release-workflow-tag-driven.md](2026-10-18-release-workflow-tag-driven.md)）。
+
+### 5. README 上游链接保留
+- **决策**：`README.md` 保留上游链接不改，以减少后续同步上游文档时的合并冲突。
 
 ## 被放弃的方案（必填）
 
