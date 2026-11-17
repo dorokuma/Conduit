@@ -31,3 +31,4 @@
 ### Repository-specific release contract
 
 - 本仓的具体检查命令以 README、CONTRIBUTING、AGENTS 既有条款及 CI 配置为准。
+- **本仓发版边界**：本仓是上游集成缓冲仓；正式产品版本与 Release 由 `Conduit-feat` 负责。除非用户明确批准，不在本仓创建新的产品发布 Tag 或 Release。
